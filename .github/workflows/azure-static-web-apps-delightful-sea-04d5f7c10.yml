@@ -1,4 +1,5 @@
-# Docs: https://github.com/Azure/webapps-deploy
+# Deploy FastAPI backend from repo folder: backend/
+# Needs GitHub secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID (OIDC)
 
 name: Build and deploy Python app to Azure Web App - societrack-api
 
@@ -15,7 +16,8 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Upload backend folder for deployment
         uses: actions/upload-artifact@v4
@@ -46,6 +48,6 @@ jobs:
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'societrack-api'
-          slot-name: 'Production'
-          package: .
+          app-name: societrack-api
+          slot-name: Production
+          package: backend
