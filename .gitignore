@@ -7,12 +7,31 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies & build
 node_modules
 dist
 dist-ssr
 *.local
 
-# Editor directories and files
+# Env / secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Frontend (Vite / React)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Backend (Python)
+backend/.venv/
+backend/**/__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.Python
+
+# Editor
 .vscode/*
 !.vscode/extensions.json
 .idea
