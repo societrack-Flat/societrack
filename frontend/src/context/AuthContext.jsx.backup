@@ -1,0 +1,969 @@
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import toast from 'react-hot-toast';
+import { supabase } from '../lib/supabaseClient';
+import { loadUserProfileApi, setActiveApartmentApi, getFilteredApartmentsApi } from '../lib/profileApi';
+
+const AuthContext = createContext(null);
+const PROFILE_CACHE_KEY = 'societrack_profile_cache_v1';
+const APARTMENT_CACHE_KEY = 'societrack_apartment_cache_v1';
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
+  const [apartment, setApartment] = useState(null);
+  const [adminApartments, setAdminApartments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [isResident, setIsResident] = useState(false);
+  const [residentApartmentId, setResidentApartmentId] = useState(null);
+  const [residentFlatId, setResidentFlatId] = useState(null);
+  const [residentFlatNumber, setResidentFlatNumber] = useState(null);
+  /** Set when profile bootstrap fails or times out (works without localStorage / incognito). */
+  const [bootstrapError, setBootstrapError] = useState(null);
+
+  // Tracks the user id already loaded so onAuthStateChange SIGNED_IN events
+  // for the same user (token refresh, URL hash processing) don't re-trigger
+  // a full profile reload and flash the loading screen.
+  const loadedUserIdRef = useRef(null);
+  /** Prevents concurrent loadUserProfile(userId) for the same user (initAuth + SIGNED_IN race). */
+  const profileLoadLockRef = useRef(null);
+
+  const readCachedProfile = (userId) => {
+    try {
+      const rawProfile = localStorage.getItem(PROFILE_CACHE_KEY);
+      const rawApt = localStorage.getItem(APARTMENT_CACHE_KEY);
+      const cachedProfile = rawProfile ? JSON.parse(rawProfile) : null;
+      const cachedApt = rawApt ? JSON.parse(rawApt) : null;
+      if (cachedProfile?.id === userId) {
+        return { profile: cachedProfile, apartment: cachedApt || null };
+      }
+    } catch {
+      // ignore cache parse issues
+    }
+    return { profile: null, apartment: null };
+  };
+
+  const writeCachedProfile = (profile, apt) => {
+    try {
+      if (profile) localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
+      if (apt !== undefined) localStorage.setItem(APARTMENT_CACHE_KEY, JSON.stringify(apt));
+    } catch {
+      // ignore quota/serialization errors
+    }
+  };
+
+  const refreshAdminApartments = async (excludeApartmentId = null) => {
+    if (user?.id && userProfile?.role === 'admin') {
+      try {
+        const merged = await fetchAdminApartmentsListApi(
+          user.id,
+          userProfile.apartment_id || null,
+          excludeApartmentId
+        );
+        setAdminApartments(merged);
+        console.log('[AuthContext] refreshAdminApartments updated:', merged);
+        return { success: true };
+      } catch (error) {
+        console.error('[AuthContext] refreshAdminApartments error:', error);
+        return { success: false, error };
+      }
+    }
+    return { success: false };
+  };
+
+  const clearCachedApartmentList = () => {
+    try {
+      localStorage.removeItem('societrack_admin_apartments_cache');
+    } catch {
+      // ignore cache errors
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const initAuth = async () => {
+      let authUserId = null;
+      try {
+        console.log('[AuthContext] initAuth starting...');
+        
+        // Supabase session first (persisted JWT). If we checked `resident_session` before
+        // this, a stale viewer login would skip getSession() entirely and admins would look
+        // "logged out" on every refresh even though their token is still valid.
+        const { data: { session } } = await supabase.auth.getSession();
+        console.log('[AuthContext] session:', session?.user?.id ? 'found' : 'not found');
+        
+        if (session?.user && isMounted) {
+          try {
+            if (localStorage.getItem('resident_session')) {
+              localStorage.removeItem('resident_session');
+            }
+          } catch {
+            /* ignore */
+          }
+          setIsResident(false);
+          authUserId = session.user.id;
+          setUser(session.user);
+          console.log('[AuthContext] user set, checking cache...');
+          
+          // Immediately hydrate UI from cache to avoid blank/infinite loading on hard reloads.
+          const cached = readCachedProfile(authUserId);
+          console.log('[AuthContext] cache data:', cached.profile ? 'found' : 'not found');
+          
+          if (cached.profile) {
+            console.log('[AuthContext] using cached data');
+            setUserProfile(cached.profile);
+            setApartment(cached.apartment);
+            setProfileLoaded(true);
+            loadedUserIdRef.current = authUserId;
+          } else {
+            console.log('[AuthContext] no cache found, setting profileLoaded to false');
+            setProfileLoaded(false);
+          }
+
+          // Hard cap for first load (incognito has no cache): never spin forever if Supabase hangs.
+          const BOOTSTRAP_MS = 20000;
+          console.log('[AuthContext] starting profile load with timeout...');
+          
+          const profilePromise = loadUserProfile(authUserId)
+            .then(() => {
+              console.log('[AuthContext] profile load success');
+              return 'ok';
+            })
+            .catch((error) => {
+              console.log('[AuthContext] profile load failed:', error);
+              return 'fail';
+            });
+          const timeoutPromise = new Promise((resolve) => {
+            setTimeout(() => {
+              console.log('[AuthContext] timeout reached');
+              resolve('timeout');
+            }, BOOTSTRAP_MS);
+          });
+          const outcome = await Promise.race([profilePromise, timeoutPromise]);
+          
+          console.log('[AuthContext] race outcome:', outcome);
+          
+          if (outcome === 'timeout' && isMounted) {
+            // Try to use cached data if available before showing error
+            const cached = readCachedProfile(authUserId);
+            if (cached.profile) {
+              console.log('[AuthContext] timeout but using cache');
+              setBootstrapError({
+                kind: 'timeout',
+                message: 'Slow connection detected. Using cached data. Some features may be limited.',
+              });
+            } else {
+              console.log('[AuthContext] timeout with no cache');
+              setBootstrapError({
+                kind: 'timeout',
+                message: 'Could not load your account in time. Check your internet connection or Supabase project status.',
+              });
+            }
+            setProfileLoaded(true);
+          }
+          loadedUserIdRef.current = authUserId;
+        } else {
+          console.log('[AuthContext] no session, checking resident...');
+          const residentSession = localStorage.getItem('resident_session');
+          if (residentSession) {
+            const parsed = JSON.parse(residentSession);
+            console.log('[AuthContext] resident session found:', parsed);
+
+            let resolvedFlatId = parsed.flat_id || null;
+            if (!resolvedFlatId && parsed.flat_number && parsed.apartment_id) {
+              const { data: flatRow } = await supabase
+                .from('flats')
+                .select('id')
+                .eq('apartment_id', parsed.apartment_id)
+                .eq('flat_number', parsed.flat_number)
+                .maybeSingle();
+              if (flatRow?.id) {
+                resolvedFlatId = flatRow.id;
+                localStorage.setItem('resident_session', JSON.stringify({ ...parsed, flat_id: resolvedFlatId }));
+              }
+            }
+
+            if (isMounted) {
+              setIsResident(true);
+              setResidentApartmentId(parsed.apartment_id);
+              if (resolvedFlatId) setResidentFlatId(resolvedFlatId);
+              if (parsed.flat_number) setResidentFlatNumber(parsed.flat_number);
+              setApartment({ id: parsed.apartment_id, name: parsed.apartment_name, ...parsed.settings?.apartments });
+            }
+          } else if (isMounted) {
+            console.log('[AuthContext] no session or resident session');
+            setProfileLoaded(true);
+          }
+        }
+      } catch (error) {
+        console.error('[AuthContext] initAuth error:', error);
+        if (isMounted && authUserId) {
+          const cached = readCachedProfile(authUserId);
+          if (cached.profile) {
+            setUserProfile(cached.profile);
+            setApartment(cached.apartment);
+            setProfileLoaded(true);
+            loadedUserIdRef.current = authUserId;
+          }
+        }
+      } finally {
+        console.log('[AuthContext] initAuth complete, loading false');
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    initAuth();
+
+    // Auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
+
+      if (event === 'SIGNED_IN' && session?.user) {
+        // If this is the same user already loaded (e.g. token refresh, URL hash processing,
+        // or duplicate SIGNED_IN after initAuth), skip the reload to avoid blanking the page.
+        if (loadedUserIdRef.current === session.user.id) return;
+
+        setUser(session.user);
+        await loadUserProfile(session.user.id);
+        setLoading(false);
+      } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+        // Just update the user object silently — no profile reload needed
+        setUser(session.user);
+      } else if (event === 'SIGNED_OUT') {
+        loadedUserIdRef.current = null;
+        profileLoadLockRef.current = null;
+        setUser(null);
+        setUserProfile(null);
+        setApartment(null);
+        setBootstrapError(null);
+        setProfileLoaded(true);
+        setLoading(false);
+      }
+    });
+
+    // Safety timeout — only clears the global loading flag.
+    const timeout = setTimeout(() => {
+      if (isMounted) setLoading(false);
+    }, 8000);
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
+  }, []);
+
+  const loadUserProfile = async (userId) => {
+    console.log('[loadUserProfile] called with:', userId);
+    
+    if (profileLoadLockRef.current === userId) {
+      console.log('[loadUserProfile] already loading, skipping');
+      return;
+    }
+    profileLoadLockRef.current = userId;
+
+    const previousLoadedId = loadedUserIdRef.current;
+    loadedUserIdRef.current = userId;
+
+    try {
+      setBootstrapError(null);
+
+      if (previousLoadedId !== userId) {
+        const snap = readCachedProfile(userId);
+        if (!snap.profile) {
+          console.log('[loadUserProfile] setting profileLoaded to false (no cache)');
+          setProfileLoaded(false);
+        } else {
+          console.log('[loadUserProfile] using cache first, skipping DB query');
+          setUserProfile(snap.profile);
+          setApartment(snap.apartment);
+          setProfileLoaded(true);
+          // Still try to fetch from DB in background but don't wait
+          fetchProfileInBackground(userId);
+          return;
+        }
+      }
+
+      console.log('[loadUserProfile] fetching from database...');
+      
+      // Add timeout to prevent hanging
+      const queryPromise = supabase
+        .from('users')
+      const cached = readCachedProfile(userId);
+      if (cached.profile) {
+        setUserProfile(cached.profile);
+        setApartment(cached.apartment);
+        setProfileLoaded(true);
+        return;
+      }
+    }
+
+    console.log('[loadUserProfile] profile found, setting state');
+    setUserProfile(profile);
+    setAdminApartments(apartments);
+    setApartment(activeApartment);
+
+    // Cache the results
+    writeCachedProfile(profile, activeApartment);
+
+  } catch (error) {
+    console.error('[loadUserProfile] error:', error);
+    
+    // Try to use cache on error
+    const cached = readCachedProfile(userId);
+    if (cached.profile) {
+      setUserProfile(cached.profile);
+      setApartment(cached.apartment);
+      setAdminApartments([]);
+      setProfileLoaded(true);
+      loadedUserIdRef.current = userId;
+  const fetchProfileInBackground = async (userId) => {
+    try {
+      console.log('[fetchProfileInBackground] updating cache in background');
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+      
+      if (!profileError && profile) {
+        let aptRow = null;
+        if (profile?.apartment_id) {
+          const { data: apt } = await supabase
+            .from('apartments')
+            .select('*')
+            .eq('id', profile.apartment_id)
+            .maybeSingle();
+          aptRow = apt || null;
+        }
+        
+        writeCachedProfile(profile, aptRow);
+        console.log('[fetchProfileInBackground] cache updated');
+      }
+    } catch (error) {
+      console.log('[fetchProfileInBackground] background update failed:', error);
+    }
+  };
+
+  const retryBootstrap = async () => {
+    if (!user?.id) {
+      window.location.href = '/login';
+      return;
+    }
+    setBootstrapError(null);
+    setProfileLoaded(false);
+    await loadUserProfile(user.id);
+  };
+
+  const signInWithEmail = async (email, password) => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        toast.error(error.message);
+        setLoading(false);
+        return { success: false, error };
+      }
+
+      try {
+        localStorage.removeItem('resident_session');
+      } catch {
+        /* ignore */
+      }
+      setIsResident(false);
+
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        toast.error(profileError.message || 'Could not load user profile');
+        setLoading(false);
+        return { success: false, error: profileError };
+      }
+
+      if (!profile) {
+        toast.error('User profile not found');
+        setLoading(false);
+        return { success: false, error: { message: 'No profile row' } };
+      }
+
+      setUser(data.user);
+      setUserProfile(profile);
+      loadedUserIdRef.current = data.user.id;
+
+      let aptForCache = null;
+      if (profile.apartment_id) {
+        const { data: apt } = await supabase
+          .from('apartments')
+          .select('*')
+          .eq('id', profile.apartment_id)
+          .maybeSingle();
+        if (apt) {
+          setApartment(apt);
+          aptForCache = apt;
+        }
+      }
+      writeCachedProfile(profile, aptForCache);
+
+      setProfileLoaded(true);
+      toast.success('Welcome back!');
+      setLoading(false);
+      return { success: true, profile };
+    } catch (error) {
+      toast.error('Login failed');
+      setLoading(false);
+      return { success: false, error };
+    }
+  };
+
+  const signInWithPhone = async (phone, password) => {
+    try {
+      setLoading(true);
+      
+      // Find user by phone
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('email')
+        .eq('phone', phone)
+        .single();
+
+      if (userError || !userData) {
+        toast.error('No account found with this phone number');
+        setLoading(false);
+        return { success: false, error: userError };
+      }
+
+      // Sign in with email
+      return await signInWithEmail(userData.email, password);
+    } catch (error) {
+      toast.error('Login failed');
+      setLoading(false);
+      return { success: false, error };
+    }
+  };
+
+  const signInWithGoogle = async () => {
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/login`,
+        },
+      });
+
+      if (error) {
+        toast.error(error.message);
+        return { success: false, error };
+      }
+      return { success: true, data };
+    } catch (error) {
+      toast.error('Google login failed');
+      return { success: false, error };
+    }
+  };
+
+  const signInWithApple = async () => {
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'apple',
+        options: {
+          redirectTo: `${window.location.origin}/login`,
+        },
+      });
+
+      if (error) {
+        toast.error(error.message);
+        return { success: false, error };
+      }
+      return { success: true, data };
+    } catch (error) {
+      toast.error('Apple login failed');
+      return { success: false, error };
+    }
+  };
+
+  // For Google/Apple OAuth users who authenticated but have no profile yet.
+  // Creates only the user profile. Apartment can be created later from Admin.
+  const completeSetup = async ({ name, phone }) => {
+    try {
+      setLoading(true);
+      // Use the already-loaded user from context — avoids a blocking network call to getUser()
+      const authUser = user;
+      if (!authUser) {
+        toast.error('Not authenticated');
+        setLoading(false);
+        return { success: false };
+      }
+
+      // If profile already exists (e.g. page reloaded and RLS blocked loadUserProfile),
+      // just load the existing data rather than trying to create duplicates.
+      const { data: existingProfile } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
+
+      if (existingProfile) {
+        loadedUserIdRef.current = authUser.id;
+        setUser(authUser);
+        setUserProfile(existingProfile);
+        let aptForCache = null;
+        if (existingProfile.apartment_id) {
+          const { data: existingApt } = await supabase
+            .from('apartments')
+            .select('*')
+            .eq('id', existingProfile.apartment_id)
+            .single();
+          if (existingApt) {
+            setApartment(existingApt);
+            aptForCache = existingApt;
+          }
+        }
+        writeCachedProfile(existingProfile, aptForCache);
+        setProfileLoaded(true);
+        setLoading(false);
+        toast.success('Welcome back!');
+        return { success: true, profile: existingProfile };
+      }
+
+      const { error: profileError } = await supabase
+        .from('users')
+        .insert({
+          id: authUser.id,
+          apartment_id: null,
+          name: name || authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Admin',
+          email: authUser.email,
+          phone: phone || null,
+          role: 'admin',
+        });
+
+      if (profileError) {
+        toast.error(`Profile error: ${profileError.message || profileError.code}`);
+        setLoading(false);
+        return { success: false, error: profileError };
+      }
+
+      const profile = {
+        id: authUser.id,
+        apartment_id: null,
+        name: name || authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Admin',
+        email: authUser.email,
+        phone: phone || null,
+        role: 'admin',
+        created_at: new Date().toISOString(),
+      };
+
+      loadedUserIdRef.current = authUser.id;
+      setUser(authUser);
+      setUserProfile(profile);
+      setApartment(null);
+      writeCachedProfile(profile, null);
+      setProfileLoaded(true);
+      toast.success('Profile created! Now create your apartment.');
+      setLoading(false);
+      return { success: true, profile };
+    } catch (error) {
+      toast.error(`Setup error: ${error.message || 'unknown'}`);
+      setLoading(false);
+      return { success: false, error };
+    }
+  };
+
+  const signInAsResident = async (username, password) => {
+    try {
+      setLoading(true);
+
+      // Shared viewer credentials only (single login for all residents)
+      const { data: viewerSettings, error } = await supabase
+        .from('viewer_settings')
+        .select('*, apartments(*)')
+        .eq('viewer_username', username)
+        .eq('viewer_password', password)
+        .eq('is_active', true)
+        .single();
+
+      if (error || !viewerSettings) {
+        toast.error('Invalid credentials');
+        setLoading(false);
+        return { success: false, error };
+      }
+
+      setIsResident(true);
+      setResidentApartmentId(viewerSettings.apartment_id);
+      setApartment(viewerSettings.apartments);
+      localStorage.setItem('resident_session', JSON.stringify({
+        apartment_id: viewerSettings.apartment_id,
+        apartment_name: viewerSettings.apartments?.name,
+        settings: viewerSettings,
+      }));
+
+      toast.success('Welcome!');
+      setLoading(false);
+      return { success: true, settings: viewerSettings };
+    } catch (error) {
+      toast.error('Login failed');
+      setLoading(false);
+      return { success: false, error };
+    }
+  };
+
+  const signUp = async ({ email, password, name, phone }) => {
+    try {
+      setLoading(true);
+
+      // Create auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { name, phone },
+        },
+      });
+
+      if (authError) {
+        toast.error(authError.message);
+        setLoading(false);
+        return { success: false, error: authError };
+      }
+
+      // Check if we have a session (email confirmation may be required)
+      if (!authData.session) {
+        toast.error('Email confirmation required. Please check your inbox and confirm, then sign in.');
+        setLoading(false);
+        return { success: false, error: { message: 'Email confirmation required' } };
+      }
+      try {
+        localStorage.removeItem('resident_session');
+      } catch {
+        /* ignore */
+      }
+      setIsResident(false);
+
+      const { error: profileError } = await supabase
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          apartment_id: null,
+          name,
+          email,
+          phone,
+          role: 'admin',
+        });
+
+      if (profileError) {
+        toast.error(`Profile error: ${profileError.message || profileError.code}`);
+        setLoading(false);
+        return { success: false, error: profileError };
+      }
+
+      const newProfile = {
+        id: authData.user.id,
+        apartment_id: null,
+        name,
+        email,
+        phone,
+        role: 'admin',
+        created_at: new Date().toISOString(),
+      };
+
+      loadedUserIdRef.current = authData.user.id;
+      setUser(authData.user);
+      setUserProfile(newProfile);
+      setApartment(null);
+      writeCachedProfile(newProfile, null);
+      setProfileLoaded(true);
+
+      toast.success('Account created successfully!');
+      setLoading(false);
+      return { success: true };
+    } catch (error) {
+      toast.error('Signup failed');
+      setLoading(false);
+      return { success: false, error };
+    }
+  };
+
+  const sendOTP = async (phone) => {
+    try {
+      const { error } = await supabase.auth.signInWithOtp({ phone });
+      if (error) {
+        toast.error(error.message);
+        return { success: false, error };
+      }
+      toast.success('OTP sent successfully!');
+      return { success: true };
+    } catch (error) {
+      toast.error('Failed to send OTP');
+      return { success: false, error };
+    }
+  };
+
+  const verifyOTP = async (phone, token) => {
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone,
+        token,
+        type: 'sms',
+      });
+      if (error) {
+        toast.error('Invalid OTP');
+        return { success: false, error };
+      }
+      return { success: true, data };
+    } catch (error) {
+      toast.error('OTP verification failed');
+      return { success: false, error };
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      if (isResident) {
+        setIsResident(false);
+        setResidentApartmentId(null);
+        setApartment(null);
+        localStorage.removeItem('resident_session');
+        toast.success('Logged out successfully');
+        window.location.href = '/login';
+        return;
+      }
+
+      await supabase.auth.signOut();
+      setUser(null);
+      setUserProfile(null);
+      setApartment(null);
+      setBootstrapError(null);
+      try {
+        localStorage.removeItem(PROFILE_CACHE_KEY);
+        localStorage.removeItem(APARTMENT_CACHE_KEY);
+      } catch {
+        /* ignore */
+      }
+      toast.success('Logged out successfully');
+      window.location.href = '/login';
+    } catch (error) {
+      toast.error('Logout failed');
+    }
+  };
+
+  const resetPassword = async (email) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) {
+        toast.error(error.message);
+        return { success: false, error };
+      }
+      toast.success('Password reset email sent!');
+      return { success: true };
+    } catch (error) {
+      toast.error('Failed to send reset email');
+      return { success: false, error };
+    }
+  };
+
+  const updatePassword = async (newPassword) => {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (error) {
+        toast.error(error.message);
+        return { success: false, error };
+      }
+      toast.success('Password updated successfully!');
+      return { success: true };
+    } catch (error) {
+      toast.error('Failed to update password');
+      return { success: false, error };
+    }
+  };
+
+  const updateProfile = async (updates) => {
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update(updates)
+        .eq('id', user.id);
+
+      if (error) {
+        toast.error(error.message);
+        return { success: false, error };
+      }
+
+      setUserProfile({ ...userProfile, ...updates });
+      toast.success('Profile updated successfully!');
+      return { success: true };
+    } catch (error) {
+      toast.error('Failed to update profile');
+      return { success: false, error };
+    }
+  };
+
+  const setActiveApartment = async (apartmentId, options = {}) => {
+    const { silent = false, excludeApartmentId = null } = options;
+    console.log('[setActiveApartment] called with:', { apartmentId, excludeApartmentId });
+    
+    try {
+      if (!user) return { success: false };
+      const nextId =
+        apartmentId === '' || apartmentId === undefined || apartmentId === null ? null : apartmentId;
+      const { error } = await supabase.from('users').update({ apartment_id: nextId }).eq('id', user.id);
+      if (error) throw error;
+      
+      // Update adminApartments list to reflect changes
+      if (userProfile?.role === 'admin') {
+        try {
+          console.log('[setActiveApartment] fetching admin apartments with exclude:', excludeApartmentId);
+          const merged = await fetchAdminApartmentsListApi(
+            user.id,
+            nextId,
+            excludeApartmentId
+          );
+          setAdminApartments(merged);
+          console.log('[AuthContext] setActiveApartment updated adminApartments:', merged);
+        } catch (aptsErr) {
+          console.warn('admin apartments list update:', aptsErr);
+        }
+      }
+      
+      await loadUserProfile(user.id);
+      if (!silent) toast.success(nextId ? 'Apartment selected' : 'No active apartment');
+      return { success: true };
+    } catch (e) {
+      if (!silent) toast.error('Failed to select apartment');
+      return { success: false, error: e };
+    }
+  };
+
+  const checkSubscription = () => {
+    if (!apartment) return { valid: true, status: 'none' };
+
+    const now = new Date();
+    const trialEnd = apartment.trial_end_date ? new Date(apartment.trial_end_date) : null;
+
+    if (apartment.subscription_status === 'active') {
+      return { valid: true, status: 'active' };
+    }
+
+    if (apartment.subscription_status === 'trial' && trialEnd && trialEnd > now) {
+      const daysLeft = Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24));
+      return { valid: true, status: 'trial', daysLeft };
+    }
+
+    if (apartment.subscription_status === 'trial' && trialEnd && trialEnd <= now) {
+      return { valid: false, reason: 'expired' };
+    }
+
+    return { valid: true, status: 'unknown' };
+  };
+
+  const updateSubscription = async (planName, paymentData) => {
+    try {
+      const planDetails = {
+        basic: { flatLimit: 50, monthlyPrice: 199 },
+        standard: { flatLimit: 100, monthlyPrice: 299 },
+        premium: { flatLimit: 500, monthlyPrice: 399 },
+      }[planName];
+
+      const { error: aptError } = await supabase
+        .from('apartments')
+        .update({
+          subscription_status: 'active',
+          plan_name: planName,
+          flat_limit: planDetails.flatLimit,
+          monthly_price: planDetails.monthlyPrice,
+          razorpay_subscription_id: paymentData.razorpay_payment_id,
+          next_billing_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        })
+        .eq('id', apartment.id);
+
+      if (aptError) {
+        toast.error('Failed to update subscription');
+        return { success: false, error: aptError };
+      }
+
+      await supabase.from('payment_history').insert({
+        apartment_id: apartment.id,
+        razorpay_payment_id: paymentData.razorpay_payment_id,
+        razorpay_order_id: paymentData.razorpay_order_id,
+        razorpay_signature: paymentData.razorpay_signature,
+        amount: planDetails.monthlyPrice,
+        status: 'success',
+        plan_name: planName,
+        billing_period_start: new Date().toISOString(),
+        billing_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+
+      const { data: apt } = await supabase
+        .from('apartments')
+        .select('*')
+        .eq('id', apartment.id)
+        .single();
+
+      setApartment(apt);
+      toast.success('Subscription activated successfully!');
+      return { success: true };
+    } catch (error) {
+      toast.error('Failed to update subscription');
+      return { success: false, error };
+    }
+  };
+
+  const value = {
+    user,
+    userProfile,
+    apartment,
+    adminApartments,
+    loading,
+    profileLoaded,
+    bootstrapError,
+    retryBootstrap,
+    isResident,
+    residentApartmentId,
+    residentFlatId,
+    residentFlatNumber,
+    signInWithEmail,
+    signInWithPhone,
+    signInWithGoogle,
+    signInWithApple,
+    signInAsResident,
+    signUp,
+    completeSetup,
+    sendOTP,
+    verifyOTP,
+    signOut,
+    resetPassword,
+    updatePassword,
+    updateProfile,
+    setActiveApartment,
+    checkSubscription,
+    updateSubscription,
+    refreshUserProfile: () => user && loadUserProfile(user.id),
+    refreshAdminApartments,
+    clearCachedApartmentList,
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
