@@ -38,4 +38,4 @@ jobs:
           app-name: societrack-api
           slot-name: Production
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: backend
+          package: .
