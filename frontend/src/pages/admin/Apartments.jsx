@@ -37,19 +37,26 @@ const Apartments = () => {
     logo: null,
   });
 
-  const { userProfile, profileLoaded, refreshUserProfile, setActiveApartment, clearCachedApartmentList } = useAuth();
+  const {
+    userProfile,
+    profileLoaded,
+    refreshUserProfile,
+    setActiveApartment,
+    clearCachedApartmentList,
+    saManagedApartmentId,
+  } = useAuth();
 
   /** Always latest list — `apartments` in delete handler can be stale and pick wrong `nextActiveId` (ghost “revived” row). */
   const apartmentsRef = useRef([]);
   apartmentsRef.current = apartments;
 
   useEffect(() => {
-    if (userProfile?.role === 'admin') {
+    if (userProfile?.role === 'admin' || (userProfile?.role === 'super_admin' && saManagedApartmentId)) {
       fetchApartments();
     } else if (profileLoaded) {
       setLoading(false);
     }
-  }, [userProfile?.id, userProfile?.role, profileLoaded, userProfile?.apartment_id]);
+  }, [userProfile?.id, userProfile?.role, profileLoaded, userProfile?.apartment_id, saManagedApartmentId]);
 
   /**
    * @param {object} [opts]
@@ -71,7 +78,10 @@ const Apartments = () => {
       console.log('[Apartments] activeForMerge:', activeForMerge);
       
       // Use only direct Supabase for now
-      const merged = await fetchAdminApartmentsList(userProfile.id, activeForMerge, excludeApartmentId);
+      const merged = await fetchAdminApartmentsList(userProfile.id, activeForMerge, excludeApartmentId, {
+        superAdminManagedApartmentId:
+          userProfile?.role === 'super_admin' ? saManagedApartmentId : null,
+      });
       console.log('[Apartments] fetched from Supabase:', merged);
       
       const cleaned =
@@ -194,7 +204,7 @@ const Apartments = () => {
             subscription_status: 'trial',
             plan_name: 'free_trial',
             trial_start_date: new Date().toISOString(),
-            trial_end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            trial_end_date: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString(),
             ...payload
           });
 

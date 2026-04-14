@@ -1,11 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Menu, Bell, User, LogOut, Settings, ChevronDown, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const TopBar = ({ onMenuClick, title }) => {
-  const { userProfile, apartment, signOut, isResident, adminApartments, setActiveApartment } = useAuth();
+  const navigate = useNavigate();
+  const {
+    userProfile,
+    apartment,
+    signOut,
+    isResident,
+    adminApartments,
+    setActiveApartment,
+    saManagedApartmentId,
+    exitSaManageMode,
+  } = useAuth();
   const isSuperAdmin = userProfile?.role === 'super_admin';
+  const isSaManaging = isSuperAdmin && !!saManagedApartmentId;
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showApartmentMenu, setShowApartmentMenu] = useState(false);
   const apartmentMenuRef = useRef(null);
@@ -37,6 +48,27 @@ const TopBar = ({ onMenuClick, title }) => {
           </button>
           <div>
             <h1 className="text-lg font-bold text-gray-900">{title}</h1>
+            {/* Super Admin managing a society */}
+            {isSaManaging && (
+              <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
+                  <Building2 size={12} />
+                  Managing
+                </span>
+                <span className="text-xs text-gray-600 truncate max-w-[200px]">{apartment?.name}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    exitSaManageMode();
+                    navigate('/superadmin/apartments');
+                  }}
+                  className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                >
+                  Exit
+                </button>
+              </div>
+            )}
+
             {/* Apartment Selector */}
             {!isResident && !isSuperAdmin && adminApartments && adminApartments.length > 0 && (
               <div className="relative" ref={apartmentMenuRef}>

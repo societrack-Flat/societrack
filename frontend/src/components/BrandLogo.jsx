@@ -31,6 +31,14 @@ const VARIANTS = {
     tagRight: 'text-[#84cc16]',
     img: 'rounded-xl bg-white shadow-lg shadow-green-500/20 ring-1 ring-gray-200/60 object-contain p-1',
   },
+  /** Dark nav: SOCIE + SMART SOCIETY white; TRACK + SMART FINANCES brand green */
+  landingWhite: {
+    socie: 'text-white',
+    track: 'text-[#84cc16]',
+    tagLeft: 'text-white',
+    tagRight: 'text-[#84cc16]',
+    img: 'rounded-xl bg-white object-contain p-1 ring-1 ring-white/50 shadow-md shadow-black/20',
+  },
   footer: {
     socie: 'text-[#e2e8f0]',
     track: 'text-[#bef264]',

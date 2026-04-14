@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Building2, Search, ExternalLink, RefreshCw } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Building2, Search, RefreshCw, LogIn } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, formatDate, formatCurrency } from '../../lib/supabaseClient';
 import Sidebar from '../../components/Sidebar';
@@ -15,7 +15,13 @@ const SAApartments = () => {
   const [rows, setRows] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const { userProfile } = useAuth();
+  const { userProfile, enterSaManageMode } = useAuth();
+  const navigate = useNavigate();
+
+  const handleOpenAsAdmin = async (apt) => {
+    const r = await enterSaManageMode(apt.id);
+    if (r.success) navigate('/admin/dashboard');
+  };
 
   const fetchApartments = async () => {
     try {
@@ -69,14 +75,6 @@ const SAApartments = () => {
     );
   }, [rows, searchTerm]);
 
-  const handleManage = (apt) => {
-    try {
-      sessionStorage.setItem('sa_sub_search', apt.name || '');
-    } catch {
-      /* ignore */
-    }
-  };
-
   return (
     <div className="flex h-screen bg-slate-50">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} role={userProfile?.role} />
@@ -87,7 +85,7 @@ const SAApartments = () => {
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-gray-900">Apartments</h1>
-            <p className="text-gray-500 mt-1">All apartments across the platform (read-only)</p>
+            <p className="text-gray-500 mt-1">Open a society to use the same admin tools (flats, income, expenses, etc.).</p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -139,14 +137,29 @@ const SAApartments = () => {
                         <td className="py-3 px-4 text-gray-800">{formatCurrency(apt._maintenanceSum)}</td>
                         <td className="py-3 px-4 text-gray-600 text-sm">{formatDate(apt.created_at)}</td>
                         <td className="py-3 px-4 text-right">
-                          <Link
-                            to="/superadmin/subscriptions"
-                            onClick={() => handleManage(apt)}
-                            className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700"
-                          >
-                            Manage
-                            <ExternalLink size={14} />
-                          </Link>
+                          <div className="flex items-center justify-end gap-3 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAsAdmin(apt)}
+                              className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-800"
+                            >
+                              <LogIn size={14} />
+                              Open as admin
+                            </button>
+                            <Link
+                              to="/superadmin/subscriptions"
+                              className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700"
+                              onClick={() => {
+                                try {
+                                  sessionStorage.setItem('sa_sub_search', apt.name || '');
+                                } catch {
+                                  /* ignore */
+                                }
+                              }}
+                            >
+                              Subscription
+                            </Link>
+                          </div>
                         </td>
                       </tr>
                     ))}

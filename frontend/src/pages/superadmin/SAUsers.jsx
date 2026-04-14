@@ -15,7 +15,15 @@ const SAUsers = () => {
   const [rows, setRows] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const { userProfile } = useAuth();
+  const { userProfile, resetPassword } = useAuth();
+
+  const handleSendPasswordReset = async (email) => {
+    if (!email) return;
+    const r = await resetPassword(email);
+    if (r?.success !== false) {
+      toast.success('If this email is registered, a reset link was sent.');
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -169,18 +177,20 @@ const SAUsers = () => {
                               <button
                                 type="button"
                                 className="px-2 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1"
-                                onClick={() => toast('Open: use society admin login for this account', { icon: 'ℹ️' })}
+                                onClick={() =>
+                                  toast('Use “Open as admin” on Super Admin → Apartments, or sign in as that admin.', {
+                                    icon: 'ℹ️',
+                                  })
+                                }
                               >
                                 <ExternalLink size={14} /> Open
                               </button>
                               <button
                                 type="button"
                                 className="px-2 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1"
-                                onClick={() =>
-                                  toast('Reset password via Supabase → Authentication → Users', { duration: 4000 })
-                                }
+                                onClick={() => handleSendPasswordReset(u.email)}
                               >
-                                <KeyRound size={14} /> Reset
+                                <KeyRound size={14} /> Reset email
                               </button>
                               <button
                                 type="button"

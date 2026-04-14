@@ -56,7 +56,7 @@ const socialIcons = {
   }, []);
 
   const stats = [
-    { number: '5+', label: 'Apartments', icon: Building2 },
+    { number: '20+', label: 'Apartments', icon: Building2 },
     { number: '150+', label: 'Users', icon: Users },
     { number: '45', label: 'Days Free Trial', icon: Clock },
     { number: '99.9%', label: 'Uptime', icon: TrendingUp },
@@ -243,40 +243,48 @@ const socialIcons = {
         animate={{ y: 0 }}
         transition={{ duration: 0.6 }}
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-          scrolled ? 'bg-white/90 backdrop-blur-lg shadow-lg' : 'bg-transparent'
+          scrolled ? 'bg-white/90 backdrop-blur-lg shadow-lg' : 'bg-slate-900/90 backdrop-blur-md shadow-md shadow-black/10'
         }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-20">
+          <div className="flex items-center justify-between h-16 md:h-[4.25rem]">
             <motion.div
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
               <Link to="/" className="inline-flex">
-                <BrandLogo variant="landing" size="lg" />
+                <BrandLogo variant={scrolled ? 'landing' : 'landingWhite'} size="md" />
               </Link>
             </motion.div>
 
             {/* Desktop Nav */}
-            <nav className="hidden md:flex items-center gap-8">
+            <nav className="hidden md:flex items-center gap-6 lg:gap-8">
               {['Features', 'How it Works', 'Pricing', 'Contact'].map((item) => (
                 <a
                   key={item}
                   href={`#${item.toLowerCase().replace(' ', '-')}`}
-                  className="text-gray-600 hover:text-green-600 font-medium transition-colors relative group"
+                  className={`text-sm font-medium transition-colors relative group ${
+                    scrolled ? 'text-gray-600 hover:text-green-600' : 'text-slate-200 hover:text-white'
+                  }`}
                 >
                   {item}
-                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-green-500 group-hover:w-full transition-all duration-300" />
+                  <span
+                    className={`absolute -bottom-1 left-0 w-0 h-0.5 group-hover:w-full transition-all duration-300 ${
+                      scrolled ? 'bg-green-500' : 'bg-lime-400'
+                    }`}
+                  />
                 </a>
               ))}
             </nav>
 
-            <div className="hidden md:flex items-center gap-4">
+            <div className="hidden md:flex items-center gap-3">
               <Link to="/login">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  className="px-6 py-2.5 text-gray-700 font-medium hover:text-green-600 transition-colors"
+                  className={`px-5 py-2 text-sm font-medium transition-colors ${
+                    scrolled ? 'text-gray-700 hover:text-green-600' : 'text-slate-200 hover:text-white'
+                  }`}
                 >
                   Login
                 </motion.button>
@@ -285,20 +293,22 @@ const socialIcons = {
                 <motion.button
                   whileHover={{ scale: 1.05, boxShadow: '0 20px 40px rgba(34, 197, 94, 0.3)' }}
                   whileTap={{ scale: 0.95 }}
-                  className="px-6 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold rounded-full shadow-lg shadow-green-500/30 flex items-center gap-2"
+                  className="px-5 py-2 text-sm bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold rounded-full shadow-lg shadow-green-500/30 flex items-center gap-2"
                 >
                   Start 45-Days Free Trial
-                  <ArrowRight size={18} />
+                  <ArrowRight size={16} />
                 </motion.button>
               </Link>
             </div>
 
             {/* Mobile Menu Button */}
             <button
-              className="md:hidden p-2"
+              type="button"
+              className={`md:hidden p-2 rounded-lg ${scrolled ? 'text-gray-900' : 'text-white'}`}
               onClick={() => setIsMenuOpen(!isMenuOpen)}
+              aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
             >
-              {isMenuOpen ? <X size={28} /> : <Menu size={28} />}
+              {isMenuOpen ? <X size={26} /> : <Menu size={26} />}
             </button>
           </div>
         </div>
@@ -337,7 +347,7 @@ const socialIcons = {
       </motion.header>
 
       {/* Hero Section */}
-      <section ref={heroRef} className="relative pt-32 pb-20 lg:pt-44 lg:pb-32 px-4 sm:px-6 lg:px-8">
+      <section ref={heroRef} className="relative pt-28 pb-16 lg:pt-36 lg:pb-28 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <motion.div
@@ -349,41 +359,41 @@ const socialIcons = {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-medium mb-6"
+                className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-xs font-medium mb-5"
               >
-                <Sparkles size={16} />
-                <span>Trusted by 500+ apartment societies</span>
+                <Sparkles size={14} />
+                <span>Trusted by 20+ apartments</span>
               </motion.div>
 
-              <h1 className="text-4xl sm:text-5xl lg:text-7xl font-bold text-gray-900 leading-tight">
-                <span className="block mb-2">Transform Your</span>
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 leading-tight">
+                <span className="block mb-1.5">Transform Your</span>
                 <span className="bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500 bg-clip-text text-transparent">
                   Apartment Management
                 </span>
               </h1>
 
-              <p className="mt-6 text-xl text-gray-600 leading-relaxed max-w-xl">
+              <p className="mt-4 text-sm sm:text-base text-gray-600 leading-relaxed max-w-xl">
                 The all-in-one financial management platform designed for modern apartment societies. 
-                <span className="block mt-2 text-green-600 font-semibold">Track expenses, manage maintenance, and keep residents informed - all in one place.</span>
+                <span className="block mt-2 text-green-700 text-xs sm:text-sm font-semibold">Track expenses, manage maintenance, and keep residents informed - all in one place.</span>
               </p>
 
-              <div className="mt-10 flex flex-col sm:flex-row gap-4">
+              <div className="mt-8 flex flex-col sm:flex-row gap-3">
                 <Link to="/signup">
                   <motion.button
                     whileHover={{ scale: 1.05, boxShadow: '0 25px 50px rgba(34, 197, 94, 0.4)' }}
                     whileTap={{ scale: 0.95 }}
-                    className="px-8 py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold rounded-2xl shadow-xl shadow-green-500/30 flex items-center justify-center gap-2 w-full sm:w-auto"
+                    className="px-6 py-3 text-sm sm:text-base bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold rounded-2xl shadow-xl shadow-green-500/30 flex items-center justify-center gap-2 w-full sm:w-auto"
                   >
                     Start 45-Days Free Trial
-                    <ArrowRight size={20} />
+                    <ArrowRight size={18} />
                   </motion.button>
                 </Link>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  className="px-8 py-4 bg-white border-2 border-gray-200 text-gray-700 font-semibold rounded-2xl flex items-center justify-center gap-2 hover:border-green-500 hover:text-green-600 transition-colors w-full sm:w-auto"
+                  className="px-6 py-3 text-sm sm:text-base bg-white border-2 border-gray-200 text-gray-700 font-semibold rounded-2xl flex items-center justify-center gap-2 hover:border-green-500 hover:text-green-600 transition-colors w-full sm:w-auto"
                 >
-                  <Play size={20} className="fill-current" />
+                  <Play size={18} className="fill-current" />
                   Watch Demo
                 </motion.button>
               </div>
@@ -405,12 +415,12 @@ const socialIcons = {
                   className="absolute -top-8 -left-8 bg-white rounded-2xl shadow-xl p-4 z-10"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                      <IndianRupee className="text-green-600" size={24} />
+                    <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
+                      <IndianRupee className="text-green-600" size={20} />
                     </div>
                     <div>
-                      <p className="text-sm text-gray-500">Monthly Income</p>
-                      <p className="text-xl font-bold text-gray-900">₹4,25,000</p>
+                      <p className="text-[11px] text-gray-500">Monthly Income</p>
+                      <p className="text-base font-bold text-gray-900">₹4,25,000</p>
                     </div>
                   </div>
                 </motion.div>
@@ -421,12 +431,12 @@ const socialIcons = {
                   className="absolute -bottom-4 -right-4 bg-white rounded-2xl shadow-xl p-4 z-10"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                      <Building2 className="text-blue-600" size={24} />
+                    <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                      <Building2 className="text-blue-600" size={20} />
                     </div>
                     <div>
-                      <p className="text-sm text-gray-500">Total Flats</p>
-                      <p className="text-xl font-bold text-gray-900">248</p>
+                      <p className="text-[11px] text-gray-500">Pending maintenance</p>
+                      <p className="text-base font-bold text-gray-900">₹2,48,000</p>
                     </div>
                   </div>
                 </motion.div>
@@ -444,46 +454,46 @@ const socialIcons = {
                   </div>
                 </motion.div>
 
-                {/* Main Dashboard Card */}
-                <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl p-6 shadow-2xl">
-                  <div className="flex items-center justify-between mb-6 gap-2">
+                {/* Main Dashboard Card — light, compact (matches app style) */}
+                <div className="bg-white rounded-3xl p-5 shadow-xl border border-gray-200/90 ring-1 ring-gray-100">
+                  <div className="flex items-center justify-between mb-4 gap-2">
                     <div className="min-w-0">
-                      <BrandLogo variant="onDark" size="xs" />
-                      <p className="text-slate-400 text-xs mt-1.5">Dashboard</p>
+                      <BrandLogo variant="landing" size="xs" />
+                      <p className="text-gray-500 text-[11px] mt-1">Dashboard</p>
                     </div>
-                    <Bell className="text-slate-400 shrink-0" size={20} />
+                    <Bell className="text-gray-400 shrink-0" size={18} />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 mb-6">
-                    <div className="bg-slate-700/50 rounded-2xl p-4">
-                      <p className="text-slate-400 text-sm">Income</p>
-                      <p className="text-2xl font-bold text-green-400">₹8.5L</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <TrendingUp size={14} className="text-green-400" />
-                        <span className="text-green-400 text-xs">+12.5%</span>
+                  <div className="grid grid-cols-2 gap-2.5 mb-4">
+                    <div className="bg-emerald-50/90 rounded-xl p-2.5 border border-emerald-100">
+                      <p className="text-emerald-800/80 text-[10px] font-medium">Income</p>
+                      <p className="text-lg font-bold text-emerald-700">₹8.5L</p>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <TrendingUp size={12} className="text-emerald-600" />
+                        <span className="text-emerald-700 text-[10px]">+12.5%</span>
                       </div>
                     </div>
-                    <div className="bg-slate-700/50 rounded-2xl p-4">
-                      <p className="text-slate-400 text-sm">Expenses</p>
-                      <p className="text-2xl font-bold text-red-400">₹3.2L</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <TrendingUp size={14} className="text-red-400" />
-                        <span className="text-red-400 text-xs">-5.2%</span>
+                    <div className="bg-rose-50/90 rounded-xl p-2.5 border border-rose-100">
+                      <p className="text-rose-800/80 text-[10px] font-medium">Expenses</p>
+                      <p className="text-lg font-bold text-rose-700">₹3.2L</p>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <TrendingUp size={12} className="text-rose-600" />
+                        <span className="text-rose-700 text-[10px]">-5.2%</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-slate-700/50 rounded-2xl p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-white font-medium">Maintenance Status</p>
-                      <span className="text-green-400 text-sm">85% Collected</span>
+                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-slate-800 text-sm font-medium">Maintenance Status</p>
+                      <span className="text-emerald-700 text-xs font-medium">85% Collected</span>
                     </div>
-                    <div className="w-full bg-slate-600 rounded-full h-3">
+                    <div className="w-full bg-slate-200 rounded-full h-2">
                       <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: '85%' }}
                         transition={{ duration: 1.5, delay: 1 }}
-                        className="bg-gradient-to-r from-green-400 to-emerald-400 h-3 rounded-full"
+                        className="bg-gradient-to-r from-emerald-500 to-green-500 h-2 rounded-full"
                       />
                     </div>
                   </div>
@@ -512,14 +522,14 @@ const socialIcons = {
       </section>
 
       {/* Stats Section */}
-      <section className="py-16 px-4 sm:px-6 lg:px-8 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900">
+      <section className="py-12 px-4 sm:px-6 lg:px-8 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900">
         <div className="max-w-7xl mx-auto">
           <motion.div
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true }}
             variants={staggerContainer}
-            className="grid grid-cols-2 lg:grid-cols-4 gap-8"
+            className="grid grid-cols-2 lg:grid-cols-4 gap-6"
           >
             {stats.map((stat, index) => {
               const Icon = stat.icon;
@@ -529,10 +539,10 @@ const socialIcons = {
                   variants={scaleIn}
                   className="text-center"
                 >
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center shadow-lg shadow-green-500/30">
-                    <Icon className="text-white" size={28} />
+                  <div className="w-14 h-14 mx-auto mb-3 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center shadow-lg shadow-green-500/30">
+                    <Icon className="text-white" size={24} />
                   </div>
-                  <p className="text-4xl font-bold text-white mb-1">
+                  <p className="text-2xl sm:text-3xl font-bold text-white mb-1">
                     {stat.number.includes('+') ? (
                       <>
                         <CountUp end={parseInt(stat.number)} />
@@ -546,7 +556,7 @@ const socialIcons = {
                       stat.number
                     )}
                   </p>
-                  <p className="text-slate-400">{stat.label}</p>
+                  <p className="text-slate-400 text-sm">{stat.label}</p>
                 </motion.div>
               );
             })}
@@ -555,17 +565,17 @@ const socialIcons = {
       </section>
 
       {/* Features Section */}
-      <section id="features" className="py-24 px-4 sm:px-6 lg:px-8">
+      <section id="features" className="py-16 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
-          <AnimatedSection className="text-center mb-16">
-            <span className="inline-block px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-medium mb-4">
+          <AnimatedSection className="text-center mb-12">
+            <span className="inline-block px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-xs font-medium mb-3">
               Features
             </span>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900">
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900">
               Everything you need to manage
               <span className="bg-gradient-to-r from-green-500 to-emerald-500 bg-clip-text text-transparent"> apartment finances</span>
             </h2>
-            <p className="mt-4 text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="mt-3 text-base sm:text-lg text-gray-600 max-w-2xl mx-auto">
               A complete solution designed specifically for apartment societies and housing communities.
             </p>
           </AnimatedSection>
@@ -591,8 +601,8 @@ const socialIcons = {
                     <div className={`w-14 h-14 ${feature.bgColor} rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300`}>
                       <Icon className={`bg-gradient-to-r ${feature.color} bg-clip-text`} size={28} style={{ color: feature.color.includes('green') ? '#22c55e' : feature.color.includes('red') ? '#ef4444' : feature.color.includes('amber') ? '#f59e0b' : feature.color.includes('blue') ? '#3b82f6' : feature.color.includes('purple') ? '#a855f7' : '#475569' }} />
                     </div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-3">{feature.title}</h3>
-                    <p className="text-gray-600 leading-relaxed">{feature.description}</p>
+                    <h3 className="text-lg font-bold text-gray-900 mb-2">{feature.title}</h3>
+                    <p className="text-gray-600 text-sm leading-relaxed">{feature.description}</p>
                   </div>
                 </motion.div>
               );
@@ -602,16 +612,16 @@ const socialIcons = {
       </section>
 
       {/* How it Works Section */}
-      <section id="how-it-works" className="py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-slate-50 to-white">
+      <section id="how-it-works" className="py-16 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-slate-50 to-white">
         <div className="max-w-7xl mx-auto">
-          <AnimatedSection className="text-center mb-16">
-            <span className="inline-block px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm font-medium mb-4">
+          <AnimatedSection className="text-center mb-12">
+            <span className="inline-block px-3 py-1.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium mb-3">
               How it Works
             </span>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900">
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900">
               Get started in <span className="bg-gradient-to-r from-blue-500 to-indigo-500 bg-clip-text text-transparent">3 simple steps</span>
             </h2>
-            <p className="mt-4 text-xl text-gray-600">
+            <p className="mt-3 text-base sm:text-lg text-gray-600">
               Up and running in less than 10 minutes
             </p>
           </AnimatedSection>
@@ -643,8 +653,8 @@ const socialIcons = {
                         <div className="w-16 h-16 bg-gradient-to-br from-slate-100 to-slate-200 rounded-2xl flex items-center justify-center mb-6">
                           <Icon className="text-slate-600" size={32} />
                         </div>
-                        <h3 className="text-xl font-bold text-gray-900 mb-3">{step.title}</h3>
-                        <p className="text-gray-600">{step.description}</p>
+                        <h3 className="text-lg font-bold text-gray-900 mb-2">{step.title}</h3>
+                        <p className="text-gray-600 text-sm">{step.description}</p>
                       </div>
                     </div>
                   </motion.div>
@@ -656,16 +666,16 @@ const socialIcons = {
       </section>
 
       {/* Pricing Section */}
-      <section id="pricing" className="py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-slate-50 to-white">
+      <section id="pricing" className="py-16 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-slate-50 to-white">
         <div className="max-w-7xl mx-auto">
-          <AnimatedSection className="text-center mb-16">
-            <span className="inline-block px-4 py-2 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium mb-4">
+          <AnimatedSection className="text-center mb-12">
+            <span className="inline-block px-3 py-1.5 bg-emerald-100 text-emerald-800 rounded-full text-xs font-medium mb-3">
               Pricing
             </span>
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900">
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900">
               Simple, transparent <span className="bg-gradient-to-r from-green-500 to-emerald-500 bg-clip-text text-transparent">pricing</span>
             </h2>
-            <p className="mt-4 text-xl text-gray-600">
+            <p className="mt-3 text-base sm:text-lg text-gray-600">
               Choose the plan that fits your community size
             </p>
           </AnimatedSection>
@@ -699,10 +709,10 @@ const socialIcons = {
                 )}
                 
                 <div className="text-center mb-8">
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">{plan.name}</h3>
+                  <h3 className="text-lg font-bold text-gray-900 mb-2">{plan.name}</h3>
                   <div className="flex items-baseline justify-center gap-1">
-                    <span className="text-xl font-semibold text-gray-900">₹</span>
-                    <span className="text-5xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                    <span className="text-lg font-semibold text-gray-900">₹</span>
+                    <span className="text-4xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
                       {plan.price}
                     </span>
                     <span className="text-gray-500">{plan.period}</span>
@@ -716,7 +726,7 @@ const socialIcons = {
                       <div className={`w-6 h-6 rounded-full bg-gradient-to-r ${plan.gradient} flex items-center justify-center flex-shrink-0`}>
                         <Check size={14} className="text-white" />
                       </div>
-                      <span className="text-gray-600">{feature}</span>
+                      <span className="text-gray-600 text-sm">{feature}</span>
                     </li>
                   ))}
                 </ul>
@@ -741,14 +751,14 @@ const socialIcons = {
       </section>
 
       {/* CTA Section */}
-      <section className="py-24 px-4 sm:px-6 lg:px-8">
+      <section className="py-16 px-4 sm:px-6 lg:px-8">
         <div className="max-w-5xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 40 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.8 }}
-            className="relative overflow-hidden bg-gradient-to-br from-green-500 via-emerald-500 to-teal-600 rounded-3xl p-12 lg:p-16 text-center"
+            className="relative overflow-hidden bg-gradient-to-br from-green-500 via-emerald-500 to-teal-600 rounded-3xl p-10 lg:p-14 text-center"
           >
             {/* Animated Background Pattern */}
             <div className="absolute inset-0 opacity-10">
@@ -763,7 +773,7 @@ const socialIcons = {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: 0.2 }}
-                className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-6"
+                className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-5"
               >
                 Ready to simplify your apartment finances?
               </motion.h2>
@@ -772,7 +782,7 @@ const socialIcons = {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: 0.3 }}
-                className="text-xl text-green-100 mb-10 max-w-2xl mx-auto"
+                className="text-base sm:text-lg text-green-100 mb-8 max-w-2xl mx-auto"
               >
                 Join hundreds of apartment communities already using Societrack to manage their finances transparently.
               </motion.p>
@@ -787,18 +797,18 @@ const socialIcons = {
                   <motion.button
                     whileHover={{ scale: 1.05, boxShadow: '0 25px 50px rgba(0, 0, 0, 0.3)' }}
                     whileTap={{ scale: 0.95 }}
-                    className="px-10 py-4 bg-white text-green-600 font-bold rounded-2xl shadow-xl flex items-center justify-center gap-2"
+                    className="px-8 py-3 text-sm sm:text-base bg-white text-green-600 font-bold rounded-2xl shadow-xl flex items-center justify-center gap-2"
                   >
                     Start 45-Days Free Trial
-                    <ArrowRight size={20} />
+                    <ArrowRight size={18} />
                   </motion.button>
                 </Link>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  className="px-10 py-4 bg-transparent border-2 border-white text-white font-semibold rounded-2xl flex items-center justify-center gap-2"
+                  className="px-8 py-3 text-sm sm:text-base bg-transparent border-2 border-white text-white font-semibold rounded-2xl flex items-center justify-center gap-2"
                 >
-                  <Phone size={20} />
+                  <Phone size={18} />
                   Schedule a Demo
                 </motion.button>
               </motion.div>
@@ -808,7 +818,7 @@ const socialIcons = {
       </section>
 
       {/* Footer */}
-      <footer id="contact" className="bg-slate-900 text-white py-16 px-4 sm:px-6 lg:px-8">
+      <footer id="contact" className="bg-slate-900 text-white py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-12 mb-12">
             <div className="lg:col-span-1">
@@ -832,7 +842,7 @@ const socialIcons = {
             </div>
 
             <div>
-              <h4 className="font-semibold text-lg mb-6">Product</h4>
+              <h4 className="font-semibold text-base mb-4">Product</h4>
               <ul className="space-y-4">
                 {['Features', 'Pricing', 'Integrations', 'Updates'].map((item) => (
                   <li key={item}>
@@ -845,7 +855,7 @@ const socialIcons = {
             </div>
 
             <div>
-              <h4 className="font-semibold text-lg mb-6">Company</h4>
+              <h4 className="font-semibold text-base mb-4">Company</h4>
               <ul className="space-y-4">
                 {['About', 'Blog', 'Careers', 'Press'].map((item) => (
                   <li key={item}>
@@ -858,7 +868,7 @@ const socialIcons = {
             </div>
 
             <div>
-              <h4 className="font-semibold text-lg mb-6">Contact</h4>
+              <h4 className="font-semibold text-base mb-4">Contact</h4>
               <ul className="space-y-4">
                 <li>
                   <a href="mailto:support@societrack.com" className="text-slate-400 hover:text-white transition-colors flex items-center gap-3">

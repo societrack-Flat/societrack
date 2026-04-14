@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { User, Mail, Phone, Shield, Calendar, CreditCard } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { formatDate, formatCurrency } from '../../lib/supabaseClient';
@@ -13,7 +14,7 @@ const MyAccount = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   
-  const { userProfile, apartment, updateProfile, updatePassword, signOut } = useAuth();
+  const { userProfile, apartment, updateProfile, updatePassword, signOut, checkSubscription } = useAuth();
 
   const [profileData, setProfileData] = useState({
     name: userProfile?.name || '',
@@ -25,6 +26,10 @@ const MyAccount = () => {
     newPassword: '',
     confirmPassword: '',
   });
+
+  if (userProfile?.role === 'super_admin') {
+    return <Navigate to="/superadmin/dashboard" replace />;
+  }
 
   const handleProfileChange = (e) => {
     setProfileData({ ...profileData, [e.target.name]: e.target.value });
@@ -91,6 +96,7 @@ const MyAccount = () => {
   };
 
   const plan = getPlanDetails(apartment?.plan_name);
+  const subscription = checkSubscription();
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -244,10 +250,18 @@ const MyAccount = () => {
                 </div>
 
                 {apartment?.subscription_status === 'trial' && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Trial Ends</span>
-                    <span className="font-semibold text-yellow-600">{formatDate(apartment?.trial_end_date)}</span>
-                  </div>
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">Trial Ends</span>
+                      <span className="font-semibold text-yellow-600">{formatDate(apartment?.trial_end_date)}</span>
+                    </div>
+                    {subscription?.status === 'trial' && subscription?.daysLeft != null && (
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                        <span className="text-gray-600">Days Left</span>
+                        <span className="font-semibold text-yellow-700">{subscription.daysLeft} days</span>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <a href="/subscribe" className="block mt-4">

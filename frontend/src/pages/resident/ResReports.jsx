@@ -186,7 +186,7 @@ const ResReports = () => {
     doc.setTextColor(60);
     doc.text('Total Society Expenses:', 20, 54);
     doc.text('Total Society Income:', 20, 62);
-    doc.text('My Maintenance:', 20, 70);
+    doc.text('Maintenance:', 20, 70);
     doc.setTextColor(0);
     doc.text(formatCurrency(stats.totalExpenses), 80, 54);
     doc.text(formatCurrency(stats.totalIncome), 80, 62);
@@ -319,13 +319,13 @@ const ResReports = () => {
                   <>
                     <Card
                       icon={stats.myMaintenanceStatus === 'paid' ? CheckCircle : Clock}
-                      label={`My Maintenance — ${residentFlatNumber ? `Flat ${residentFlatNumber}` : 'This Flat'}`}
+                      label={`Maintenance — ${residentFlatNumber ? `Flat ${residentFlatNumber}` : 'This Flat'}`}
                       value={stats.myMaintenanceStatus === 'paid' ? 'Paid ✓' : 'Pending'}
                       color={stats.myMaintenanceStatus === 'paid' ? 'green' : 'yellow'}
                     />
                     <Card
                       icon={BarChart3}
-                      label="My Maintenance Amount"
+                      label="Maintenance amount"
                       value={formatCurrency(stats.myMaintenanceAmount)}
                       color="blue"
                     />
@@ -338,7 +338,7 @@ const ResReports = () => {
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                     <Clock size={20} className="text-yellow-500" />
-                    My Maintenance — {getMonthName(selectedMonth)} {selectedYear}
+                    Maintenance — {getMonthName(selectedMonth)} {selectedYear}
                   </h3>
                   <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
                     <div>

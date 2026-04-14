@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { IndianRupee, TrendingUp, TrendingDown, Clock, DoorOpen, BarChart3, Megaphone, ArrowRight, Calendar, FileText, Plus, Building2, Settings } from 'lucide-react';
+import { IndianRupee, TrendingUp, TrendingDown, Clock, BarChart3, Megaphone, ArrowRight, Calendar, FileText, Plus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, formatCurrency, getSignedUrl, formatDate } from '../../lib/supabaseClient';
 import Sidebar from '../../components/Sidebar';
@@ -41,17 +41,17 @@ function getRangeBounds(timeRange, customFrom, customTo) {
   return { from, to };
 }
 
-const StatCard = ({ icon: Icon, label, value, subValue, gradient, iconBg, iconColor }) => (
-  <div className={`rounded-2xl p-6 shadow-sm min-h-[140px] flex flex-col ${gradient}`}>
-    <div className="flex items-center justify-between mb-4 shrink-0">
-      <div className={`p-2.5 rounded-xl ${iconBg}`}>
-        <Icon className={iconColor} size={22} />
+const StatCard = ({ icon: Icon, label, value, subValue, className = '', iconBg, iconColor }) => (
+  <div className={`rounded-lg p-3 shadow-sm border border-gray-200/90 bg-white min-h-[92px] flex flex-col ${className}`}>
+    <div className="flex items-center justify-between mb-1.5 shrink-0">
+      <div className={`p-1.5 rounded-md ${iconBg}`}>
+        <Icon className={iconColor} size={16} />
       </div>
     </div>
-    <p className="text-sm font-medium text-gray-500">{label}</p>
-    <p className="text-2xl font-bold text-gray-900 mt-1 break-all">{value}</p>
+    <p className="text-[11px] font-medium text-gray-500">{label}</p>
+    <p className="text-base sm:text-lg font-bold text-gray-900 mt-0.5 break-all leading-tight">{value}</p>
     {subValue && (
-      <p className="text-xs text-gray-500 mt-1 leading-snug line-clamp-2 break-words" title={typeof subValue === 'string' ? subValue : ''}>
+      <p className="text-[11px] text-gray-500 mt-1 leading-snug line-clamp-2 break-words" title={typeof subValue === 'string' ? subValue : ''}>
         {subValue}
       </p>
     )}
@@ -65,6 +65,8 @@ const Dashboard = () => {
   const [recentExpenses, setRecentExpenses] = useState([]);
   const [recentTransactions, setRecentTransactions] = useState([]);
   const [chartItems, setChartItems] = useState([]);
+  const [announcementPreview, setAnnouncementPreview] = useState([]);
+  const [expenseByCategory, setExpenseByCategory] = useState([]);
   const [timeRange, setTimeRange] = useState('all'); // all | month | custom
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -79,6 +81,7 @@ const Dashboard = () => {
     totalExpenses: 0,
     otherMaintenanceOnFlats: 0,
     openingBalance: 0,
+    totalFlatPendingMaintenance: 0,
   });
 
   const { apartment, userProfile, checkSubscription, profileLoaded } = useAuth();
@@ -108,7 +111,7 @@ const Dashboard = () => {
       const { from, to } = getRangeBounds(timeRange, customFrom, customTo);
 
       let periodIncomeQ = supabase.from('income').select('amount').eq('apartment_id', activeApartmentId);
-      let periodExpenseQ = supabase.from('expenses').select('amount').eq('apartment_id', activeApartmentId);
+      let periodExpenseQ = supabase.from('expenses').select('amount, category').eq('apartment_id', activeApartmentId);
       if (from) {
         periodIncomeQ = periodIncomeQ.gte('date', from);
         periodExpenseQ = periodExpenseQ.gte('date', from);
@@ -119,7 +122,7 @@ const Dashboard = () => {
       }
 
       const [
-        { count: totalFlats },
+        { data: flatRows },
         { data: periodIncomeRows },
         { data: periodExpenseRows },
         { data: totalIncomeData },
@@ -128,11 +131,14 @@ const Dashboard = () => {
         { data: maintenancePendingData },
         { data: recentIncomeData },
         { data: recentExpenseData },
-        { data: flatsOtherRows },
         { data: aptOpeningRow },
+        { data: announcementRows },
       ] = await withTimeout(
         Promise.all([
-          supabase.from('flats').select('*', { count: 'exact', head: true }).eq('apartment_id', activeApartmentId),
+          supabase
+            .from('flats')
+            .select('id, monthly_maintenance, pending_maintenance, other_maintenance')
+            .eq('apartment_id', activeApartmentId),
           periodIncomeQ,
           periodExpenseQ,
           supabase.from('income').select('amount').eq('apartment_id', activeApartmentId),
@@ -141,17 +147,41 @@ const Dashboard = () => {
           supabase.from('maintenance').select('amount').eq('apartment_id', activeApartmentId).eq('month', currentMonth).eq('year', currentYear).eq('status', 'pending'),
           supabase.from('income').select('*').eq('apartment_id', activeApartmentId).order('date', { ascending: false }).limit(4),
           supabase.from('expenses').select('*').eq('apartment_id', activeApartmentId).order('date', { ascending: false }).limit(4),
-          supabase.from('flats').select('id, other_maintenance').eq('apartment_id', activeApartmentId),
           supabase.from('apartments').select('opening_balance').eq('id', activeApartmentId).maybeSingle(),
+          supabase
+            .from('announcements')
+            .select('id, title, message, priority, created_at')
+            .eq('apartment_id', activeApartmentId)
+            .order('created_at', { ascending: false })
+            .limit(4),
         ]),
         DASHBOARD_STATS_MS
       );
 
-      const otherMaintenanceOnFlats =
-        (flatsOtherRows || []).reduce((s, row) => s + Number(row?.other_maintenance ?? 0), 0) || 0;
+      const flatsList = flatRows || [];
+      const totalFlats = flatsList.length;
+      const totalFlatPendingMaintenance = flatsList.reduce((s, row) => {
+        const m = Number(row?.monthly_maintenance ?? 0);
+        const p = Number(row?.pending_maintenance ?? 0);
+        return s + m + p;
+      }, 0);
+      const otherMaintenanceOnFlats = flatsList.reduce((s, row) => s + Number(row?.other_maintenance ?? 0), 0) || 0;
+
+      setAnnouncementPreview(announcementRows || []);
 
       const periodIncome = periodIncomeRows?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const periodExpense = periodExpenseRows?.reduce((s, i) => s + Number(i.amount), 0) || 0;
+
+      const catMap = {};
+      (periodExpenseRows || []).forEach((row) => {
+        const c = String(row.category || 'Uncategorized').trim() || 'Uncategorized';
+        catMap[c] = (catMap[c] || 0) + Number(row.amount || 0);
+      });
+      setExpenseByCategory(
+        Object.entries(catMap)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8)
+      );
       const allIncomeSum = totalIncomeData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const allExpenseSum = totalExpensesData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const openingBal = Number(aptOpeningRow?.opening_balance ?? 0);
@@ -169,7 +199,8 @@ const Dashboard = () => {
         openingBalance: openingBal,
         maintenanceCollected: maintenancePaidData?.reduce((s, i) => s + Number(i.paid_amount), 0) || 0,
         maintenancePending: maintenancePendingData?.reduce((s, i) => s + Number(i.amount), 0) || 0,
-        totalFlats: totalFlats ?? 0,
+        totalFlats,
+        totalFlatPendingMaintenance,
         otherMaintenanceOnFlats,
       });
     } catch (error) {
@@ -359,132 +390,166 @@ const Dashboard = () => {
               )}
 
               {/* Welcome Banner */}
-              <div className="bg-gradient-to-r from-slate-800 via-slate-700 to-slate-800 rounded-2xl p-6 mb-6 text-white relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-lime-400/15 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+              <div className="bg-gradient-to-r from-slate-700 via-slate-600 to-slate-700 rounded-xl p-4 mb-4 text-white relative overflow-hidden border border-slate-600/50">
+                <div className="absolute top-0 right-0 w-48 h-48 bg-lime-400/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
                 <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-2 h-2 bg-lime-300 rounded-full animate-pulse" />
-                    <span className="text-lime-200 text-sm font-medium">{apartment?.name}</span>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <div className="w-1.5 h-1.5 bg-lime-300 rounded-full animate-pulse" />
+                    <span className="text-lime-200/90 text-xs font-medium">{apartment?.name}</span>
                   </div>
-                  <h1 className="text-2xl font-bold">Welcome back, {userProfile?.name?.split(' ')[0] || 'Admin'}!</h1>
-                  <p className="text-slate-400 mt-1 text-sm">Here's your apartment's financial summary</p>
+                  <h1 className="text-lg sm:text-xl font-bold">Welcome back, {userProfile?.name?.split(' ')[0] || 'Admin'}!</h1>
+                  <p className="text-slate-300 mt-0.5 text-xs">Financial summary for the selected period</p>
+                </div>
+              </div>
+
+              {/* Period filter + primary actions (top) */}
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500">Period</span>
+                  <select
+                    value={timeRange}
+                    onChange={(e) => setTimeRange(e.target.value)}
+                    className="bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
+                  >
+                    <option value="all">All Time</option>
+                    <option value="month">This Month</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  {timeRange === 'custom' && (
+                    <>
+                      <div className="relative">
+                        <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                        <input
+                          type="date"
+                          value={customFrom}
+                          onChange={(e) => setCustomFrom(e.target.value)}
+                          className="bg-white border border-gray-200 rounded-lg pl-7 pr-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-lime-400"
+                        />
+                      </div>
+                      <div className="relative">
+                        <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                        <input
+                          type="date"
+                          value={customTo}
+                          onChange={(e) => setCustomTo(e.target.value)}
+                          className="bg-white border border-gray-200 rounded-lg pl-7 pr-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-lime-400"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    to="/admin/income"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-200/80 transition-colors"
+                  >
+                    <Plus size={16} />
+                    Add Income
+                  </Link>
+                  <Link
+                    to="/admin/expenses"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200/90 transition-colors"
+                  >
+                    <Plus size={16} />
+                    Add Expense
+                  </Link>
                 </div>
               </div>
 
               {/* Stats Grid — period follows “All Time / Month / Custom” (same as chart) */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <StatCard icon={TrendingUp} label={incomeStatLabel} value={formatCurrency(stats.totalIncomeThisMonth)} gradient="bg-white border border-lime-200" iconBg="bg-lime-100" iconColor="text-lime-600" />
-                <StatCard icon={TrendingDown} label={expenseStatLabel} value={formatCurrency(stats.totalExpensesThisMonth)} gradient="bg-white border border-red-300" iconBg="bg-red-100" iconColor="text-red-600" />
-                <StatCard icon={IndianRupee} label={netStatLabel} value={formatCurrency(periodNet)} subValue={periodNet >= 0 ? '↑ Surplus' : '↓ Deficit'} gradient={`bg-white border ${periodNet >= 0 ? 'border-blue-100' : 'border-red-300'}`} iconBg="bg-blue-100" iconColor="text-blue-600" />
-                <StatCard icon={DoorOpen} label="Total Flats" value={stats.totalFlats} subValue={`Pending maint.: ${formatCurrency(stats.maintenancePending)} · Other (flats): ${formatCurrency(stats.otherMaintenanceOnFlats)}`} gradient="bg-white border border-purple-100" iconBg="bg-purple-100" iconColor="text-purple-600" />
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+                <StatCard
+                  icon={TrendingUp}
+                  label={incomeStatLabel}
+                  value={formatCurrency(stats.totalIncomeThisMonth)}
+                  className="border-lime-200/70 bg-lime-50/40"
+                  iconBg="bg-lime-100/90"
+                  iconColor="text-lime-700"
+                />
+                <StatCard
+                  icon={TrendingDown}
+                  label={expenseStatLabel}
+                  value={formatCurrency(stats.totalExpensesThisMonth)}
+                  className="border-rose-200/80 bg-rose-50/30"
+                  iconBg="bg-rose-100/80"
+                  iconColor="text-rose-700"
+                />
+                <StatCard
+                  icon={IndianRupee}
+                  label={netStatLabel}
+                  value={formatCurrency(periodNet)}
+                  subValue={periodNet >= 0 ? 'Surplus' : 'Deficit'}
+                  className={periodNet >= 0 ? 'border-sky-200/80 bg-sky-50/30' : 'border-amber-200/80 bg-amber-50/40'}
+                  iconBg={periodNet >= 0 ? 'bg-sky-100' : 'bg-amber-100'}
+                  iconColor={periodNet >= 0 ? 'text-sky-700' : 'text-amber-800'}
+                />
+                <StatCard
+                  icon={Clock}
+                  label="Pending maintenance (flats)"
+                  value={formatCurrency(stats.totalFlatPendingMaintenance)}
+                  subValue={`${stats.totalFlats} flat(s) · Month + balance · Other charges: ${formatCurrency(stats.otherMaintenanceOnFlats)}`}
+                  className="border-violet-200/70 bg-violet-50/25"
+                  iconBg="bg-violet-100/90"
+                  iconColor="text-violet-700"
+                />
               </div>
 
-              {/* Chart + shortcuts */}
-              <div className="grid lg:grid-cols-12 gap-6 mb-6">
+              {/* Chart + announcements */}
+              <div className="grid lg:grid-cols-12 gap-4 mb-6">
                 <div className="lg:col-span-7 xl:col-span-8">
-                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      <BarChart3 className="text-lime-600" size={18} />
-                      <p className="text-sm font-semibold text-gray-900">Dashboard Visual</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={timeRange}
-                        onChange={(e) => setTimeRange(e.target.value)}
-                        className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
-                      >
-                        <option value="all">All Time</option>
-                        <option value="month">This Month</option>
-                        <option value="custom">Custom</option>
-                      </select>
-
-                      {timeRange === 'custom' && (
-                        <div className="flex items-center gap-2">
-                          <div className="relative">
-                            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                            <input
-                              type="date"
-                              value={customFrom}
-                              onChange={(e) => setCustomFrom(e.target.value)}
-                              className="bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
-                            />
-                          </div>
-                          <div className="relative">
-                            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                            <input
-                              type="date"
-                              value={customTo}
-                              onChange={(e) => setCustomTo(e.target.value)}
-                              className="bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <BarChart3 className="text-lime-600" size={16} />
+                    <p className="text-xs font-semibold text-gray-800">Income vs expenses by month</p>
                   </div>
-
                   <MonthlyIncomeExpenseChart items={chartItems} />
                 </div>
 
-                <div className="lg:col-span-5 xl:col-span-4 flex flex-col gap-3">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Shortcuts</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Link
-                      to="/admin/income"
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-lime-900 bg-lime-200 hover:bg-lime-300 border border-lime-300/80 shadow-sm transition-colors"
-                    >
-                      <Plus size={18} />
-                      Add Income
+                <div className="lg:col-span-5 xl:col-span-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Megaphone className="text-lime-600" size={16} />
+                      <p className="text-xs font-semibold text-gray-800">Announcements</p>
+                    </div>
+                    <Link to="/admin/announcements" className="text-xs font-medium text-lime-700 hover:text-lime-800 flex items-center gap-0.5">
+                      Manage <ArrowRight size={12} />
                     </Link>
-                    <Link
-                      to="/admin/expenses"
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 border border-red-700 shadow-sm transition-colors"
-                    >
-                      <Plus size={18} />
-                      Add Expense
-                    </Link>
-                    <Link
-                      to="/admin/flats"
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-800 hover:border-lime-300 hover:bg-lime-50/80 transition-colors"
-                    >
-                      <DoorOpen size={18} className="text-lime-600 shrink-0" />
-                      Flats
-                    </Link>
-                    <Link
-                      to="/admin/maintenance"
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-800 hover:border-amber-400/50 hover:bg-amber-50/50 transition-colors"
-                    >
-                      <Clock size={18} className="text-amber-600 shrink-0" />
-                      Maintenance
-                    </Link>
-                    <Link
-                      to="/admin/reports"
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-800 hover:border-lime-300 hover:bg-lime-50/80 transition-colors"
-                    >
-                      <BarChart3 size={18} className="text-lime-600 shrink-0" />
-                      Reports
-                    </Link>
-                    <Link
-                      to="/admin/announcements"
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-800 hover:border-lime-300 hover:bg-lime-50/80 transition-colors"
-                    >
-                      <Megaphone size={18} className="text-lime-600 shrink-0" />
-                      Announcements
-                    </Link>
-                    <Link
-                      to="/admin/apartments"
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-800 hover:border-slate-400/40 hover:bg-slate-50 transition-colors"
-                    >
-                      <Building2 size={18} className="text-slate-600 shrink-0" />
-                      Apartments
-                    </Link>
-                    <Link
-                      to="/admin/viewer-settings"
-                      className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-800 hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors"
-                    >
-                      <Settings size={18} className="text-indigo-600 shrink-0" />
-                      Viewer Access
-                    </Link>
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-200/90 shadow-sm p-4 min-h-[200px]">
+                    {announcementPreview.length === 0 ? (
+                      <p className="text-xs text-gray-500 text-center py-8">No announcements yet. Residents see updates here.</p>
+                    ) : (
+                      <ul className="space-y-3">
+                        {announcementPreview.map((a) => (
+                          <li key={a.id} className="border-b border-gray-100 last:border-0 pb-3 last:pb-0">
+                            <p className="text-sm font-medium text-gray-900 line-clamp-1">{a.title || 'Announcement'}</p>
+                            <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{a.message}</p>
+                            <p className="text-[10px] text-gray-400 mt-1">{a.created_at ? formatDate(a.created_at) : ''}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3 space-y-2">
+                    <p className="text-[11px] font-semibold text-gray-700">At a glance</p>
+                    <p className="text-xs text-gray-600">
+                      <span className="font-medium text-gray-800">{stats.totalFlats}</span> flats · pending maintenance (flats){' '}
+                      <span className="font-medium text-gray-800">{formatCurrency(stats.totalFlatPendingMaintenance)}</span>
+                    </p>
+                    {expenseByCategory.length > 0 ? (
+                      <div>
+                        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-1">Expenses by category (period)</p>
+                        <ul className="space-y-1">
+                          {expenseByCategory.map(([name, amt]) => (
+                            <li key={name} className="flex justify-between gap-2 text-[11px] text-gray-700">
+                              <span className="truncate">{name}</span>
+                              <span className="shrink-0 font-medium text-gray-900">{formatCurrency(amt)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-gray-500">No expenses in this period for a category breakdown.</p>
+                    )}
                   </div>
                 </div>
               </div>

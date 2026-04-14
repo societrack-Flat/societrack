@@ -3,10 +3,18 @@ import { supabase } from './supabaseClient';
 /**
  * Apartments owned by admin (`created_by`) plus legacy rows linked only via
  * `users.apartment_id` (missing or null `created_by`), merged and deduped.
+ * @param {{ superAdminManagedApartmentId?: string|null }} [options]
  */
-export async function fetchAdminApartmentsList(userId, activeApartmentId, excludeApartmentId = null) {
+export async function fetchAdminApartmentsList(userId, activeApartmentId, excludeApartmentId = null, options = {}) {
+  if (options.superAdminManagedApartmentId) {
+    const id = options.superAdminManagedApartmentId;
+    const { data, error } = await supabase.from('apartments').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data ? [data] : [];
+  }
+
   console.log('[fetchAdminApartmentsList] called with:', { userId, activeApartmentId, excludeApartmentId });
-  
+
   // Build the base query
   let query = supabase
     .from('apartments')

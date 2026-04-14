@@ -7,6 +7,8 @@ import { supabase, getPublicSiteUrl } from '../lib/supabaseClient';
 const AuthContext = createContext(null);
 const PROFILE_CACHE_KEY = 'societrack_profile_cache_v1';
 const APARTMENT_CACHE_KEY = 'societrack_apartment_cache_v1';
+/** Session-only: super admin “manage this society” target (not persisted across devices). */
+export const SA_MANAGE_APARTMENT_KEY = 'societrack_sa_manage_apartment_id';
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -28,6 +30,14 @@ export const AuthProvider = ({ children }) => {
   const [residentFlatId, setResidentFlatId] = useState(null);
   const [residentFlatNumber, setResidentFlatNumber] = useState(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  /** When set, super admin uses admin UI for this apartment (sessionStorage-backed). */
+  const [saManagedApartmentId, setSaManagedApartmentIdState] = useState(() => {
+    try {
+      return typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(SA_MANAGE_APARTMENT_KEY) : null;
+    } catch {
+      return null;
+    }
+  });
   /** Set when profile bootstrap fails or times out (works without localStorage / incognito). */
   const [bootstrapError, setBootstrapError] = useState(null);
 
@@ -301,6 +311,42 @@ export const AuthProvider = ({ children }) => {
       console.log('[loadUserProfile] profile found, setting state:', profile);
       setUserProfile(profile);
 
+      if (profile.role === 'super_admin') {
+        setAdminApartments([]);
+        let saId = null;
+        try {
+          saId = sessionStorage.getItem(SA_MANAGE_APARTMENT_KEY);
+        } catch {
+          /* ignore */
+        }
+        setSaManagedApartmentIdState(saId || null);
+        let activeApartment = null;
+        if (saId) {
+          try {
+            const { data: aptRow, error: aptErr } = await supabase
+              .from('apartments')
+              .select('*')
+              .eq('id', saId)
+              .maybeSingle();
+            if (!aptErr) activeApartment = aptRow || null;
+          } catch (aptFetchErr) {
+            console.warn('[loadUserProfile] SA managed apartment fetch failed:', aptFetchErr);
+          }
+        }
+        setApartment(activeApartment);
+        writeCachedProfile(profile, activeApartment);
+        setIsSuperAdmin(true);
+        setProfileLoaded(true);
+        return;
+      }
+
+      try {
+        sessionStorage.removeItem(SA_MANAGE_APARTMENT_KEY);
+      } catch {
+        /* ignore */
+      }
+      setSaManagedApartmentIdState(null);
+
       // Load admin apartments
       try {
         const { data: apartments, error } = await supabase
@@ -338,7 +384,7 @@ export const AuthProvider = ({ children }) => {
       setApartment(activeApartment);
       writeCachedProfile(profile, activeApartment);
 
-      setIsSuperAdmin(profile.role === 'super_admin');
+      setIsSuperAdmin(false);
       setProfileLoaded(true);
 
     } catch (error) {
@@ -349,29 +395,56 @@ export const AuthProvider = ({ children }) => {
       if (cached.profile) {
         console.log('[loadUserProfile] using cache as fallback');
         setUserProfile(cached.profile);
-        setApartment(cached.apartment);
-        setIsSuperAdmin(cached.profile.role === 'super_admin');
-        
-        // Load admin apartments even when using cache
-        try {
-          const { data: apartments, error } = await supabase
-            .from('apartments')
-            .select('*')
-            .eq('created_by', userId)
-            .order('created_at', { ascending: false });
-
-          if (error) {
-            console.log('[loadUserProfile] Error loading apartments from cache:', error);
-            setAdminApartments([]);
-          } else {
-            console.log('[loadUserProfile] Loaded apartments from cache:', apartments);
-            setAdminApartments(apartments || []);
-          }
-        } catch (err) {
-          console.log('[loadUserProfile] Apartment loading failed from cache:', err);
+        if (cached.profile.role === 'super_admin') {
           setAdminApartments([]);
+          let saId = null;
+          try {
+            saId = sessionStorage.getItem(SA_MANAGE_APARTMENT_KEY);
+          } catch {
+            /* ignore */
+          }
+          setSaManagedApartmentIdState(saId || null);
+          let activeApartment = null;
+          if (saId) {
+            try {
+              const { data: aptRow, error: aptErr } = await supabase
+                .from('apartments')
+                .select('*')
+                .eq('id', saId)
+                .maybeSingle();
+              if (!aptErr) activeApartment = aptRow || null;
+            } catch (e) {
+              console.warn('[loadUserProfile] cache SA apartment:', e);
+            }
+          }
+          setApartment(activeApartment);
+          setIsSuperAdmin(true);
+        } else {
+          try {
+            sessionStorage.removeItem(SA_MANAGE_APARTMENT_KEY);
+          } catch {
+            /* ignore */
+          }
+          setSaManagedApartmentIdState(null);
+          setApartment(cached.apartment);
+          setIsSuperAdmin(false);
+          try {
+            const { data: apartments, error } = await supabase
+              .from('apartments')
+              .select('*')
+              .eq('created_by', userId)
+              .order('created_at', { ascending: false });
+
+            if (error) {
+              setAdminApartments([]);
+            } else {
+              setAdminApartments(apartments || []);
+            }
+          } catch (err) {
+            setAdminApartments([]);
+          }
         }
-        
+
         setProfileLoaded(true);
         loadedUserIdRef.current = userId;
         return;
@@ -452,23 +525,63 @@ export const AuthProvider = ({ children }) => {
     return { success: true };
   };
 
+  const exitSaManageMode = () => {
+    try {
+      sessionStorage.removeItem(SA_MANAGE_APARTMENT_KEY);
+    } catch {
+      /* ignore */
+    }
+    setSaManagedApartmentIdState(null);
+    setApartment(null);
+  };
+
+  const enterSaManageMode = async (apartmentId) => {
+    if (!apartmentId) return { success: false, error: new Error('No apartment') };
+    try {
+      sessionStorage.setItem(SA_MANAGE_APARTMENT_KEY, apartmentId);
+      setSaManagedApartmentIdState(apartmentId);
+      const { data, error } = await supabase.from('apartments').select('*').eq('id', apartmentId).maybeSingle();
+      if (error) throw error;
+      setApartment(data || null);
+      return { success: true };
+    } catch (e) {
+      try {
+        sessionStorage.removeItem(SA_MANAGE_APARTMENT_KEY);
+      } catch {
+        /* ignore */
+      }
+      setSaManagedApartmentIdState(null);
+      toast.error(e?.message || 'Could not open apartment');
+      return { success: false, error: e };
+    }
+  };
+
   const setActiveApartment = async (apartmentId, options = {}) => {
     const { silent = false } = options;
-    
+
     try {
       if (!user) return { success: false };
-      
-      // Use direct Supabase for now
+
+      if (userProfile?.role === 'super_admin') {
+        if (!apartmentId) {
+          exitSaManageMode();
+          if (!silent) toast.success('Exited apartment view');
+          return { success: true };
+        }
+        const r = await enterSaManageMode(apartmentId);
+        if (r.success && !silent) toast.success('Apartment selected');
+        return r;
+      }
+
       const { error } = await supabase
         .from('users')
         .update({ apartment_id: apartmentId || null })
         .eq('id', user.id);
-      
+
       if (error) throw error;
-      
-      // Reload profile to get updated state
+
       await loadUserProfile(user.id);
-      
+
       if (!silent) toast.success(apartmentId ? 'Apartment selected' : 'No active apartment');
       return { success: true };
     } catch (e) {
@@ -656,6 +769,13 @@ export const AuthProvider = ({ children }) => {
 
   const signOut = async () => {
     try {
+      try {
+        sessionStorage.removeItem(SA_MANAGE_APARTMENT_KEY);
+      } catch {
+        /* ignore */
+      }
+      setSaManagedApartmentIdState(null);
+
       // Clear superadmin session if exists
       localStorage.removeItem('superadmin_session');
       localStorage.removeItem('superadmin_user');
@@ -785,14 +905,37 @@ export const AuthProvider = ({ children }) => {
   };
 
   const checkSubscription = () => {
-    if (!userProfile) return { valid: false, reason: 'no_profile' };
-    if (userProfile.role === 'super_admin') return { valid: true };
-    if (!userProfile.subscription_end_date) return { valid: false, reason: 'no_subscription' };
-    const endDate = new Date(userProfile.subscription_end_date);
+    if (!userProfile) return { valid: false, reason: 'no_profile', status: null, daysLeft: null };
+    if (userProfile.role === 'super_admin') return { valid: true, status: null, daysLeft: null };
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    if (endDate < today) return { valid: false, reason: 'expired' };
-    return { valid: true };
+
+    const apt = apartment;
+    // Apartment trial (45-day) — prefer this over legacy per-user subscription_end_date when in trial.
+    const planIsTrial =
+      apt?.plan_name === 'free_trial' || apt?.plan_name === 'free' || apt?.subscription_status === 'trial';
+    if (apt?.trial_end_date && planIsTrial) {
+      const trialEnd = new Date(apt.trial_end_date);
+      trialEnd.setHours(0, 0, 0, 0);
+      const daysLeft = Math.ceil((trialEnd.getTime() - today.getTime()) / 86400000);
+      return {
+        valid: daysLeft >= 0,
+        reason: daysLeft < 0 ? 'expired' : undefined,
+        status: 'trial',
+        daysLeft: Math.max(0, daysLeft),
+      };
+    }
+
+    if (userProfile.subscription_end_date) {
+      const endDate = new Date(userProfile.subscription_end_date);
+      endDate.setHours(0, 0, 0, 0);
+      if (endDate < today) return { valid: false, reason: 'expired', status: null, daysLeft: null };
+      const daysLeft = Math.ceil((endDate.getTime() - today.getTime()) / 86400000);
+      return { valid: true, status: 'active', daysLeft: Math.max(0, daysLeft), reason: null };
+    }
+
+    return { valid: true, status: null, daysLeft: null, reason: null };
   };
 
   const value = {
@@ -807,6 +950,9 @@ export const AuthProvider = ({ children }) => {
     residentFlatId,
     residentFlatNumber,
     isSuperAdmin,
+    saManagedApartmentId,
+    enterSaManageMode,
+    exitSaManageMode,
     bootstrapError,
     retryBootstrap,
     refreshUserProfile,

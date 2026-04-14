@@ -63,6 +63,14 @@ const Reports = () => {
       const aptId = activeApartmentId;
       if (!aptId) return;
 
+      const { data: aptMeta, error: aptMetaErr } = await supabase
+        .from('apartments')
+        .select('opening_balance')
+        .eq('id', aptId)
+        .maybeSingle();
+      if (aptMetaErr) console.warn('[Reports] apartment opening_balance:', aptMetaErr);
+      const aptOpeningBook = Number(aptMeta?.opening_balance ?? 0);
+
       // Date range
       const yearNum = selectedYear === 'all' ? null : parseInt(selectedYear);
       const monthNum = selectedMonth === 'all' ? null : parseInt(selectedMonth);
@@ -112,8 +120,8 @@ const Reports = () => {
         });
       }
 
-      // Opening balance (only meaningful for month/year filter)
-      let openingBalance = 0;
+      // Opening balance: apartment book balance + net of all transactions before the report window
+      let openingBalance = aptOpeningBook;
       if (startDate) {
         const [{ data: prevIncome }, { data: prevExpenses }] = await Promise.all([
           supabase.from('income').select('amount').eq('apartment_id', aptId).lt('date', startDate),
@@ -121,7 +129,7 @@ const Reports = () => {
         ]);
         const prevIncomeTotal = prevIncome?.reduce((sum, item) => sum + Number(item.amount), 0) || 0;
         const prevExpenseTotal = prevExpenses?.reduce((sum, item) => sum + Number(item.amount), 0) || 0;
-        openingBalance = prevIncomeTotal - prevExpenseTotal;
+        openingBalance = aptOpeningBook + prevIncomeTotal - prevExpenseTotal;
       }
 
       const totalIncome = monthIncome?.reduce((sum, item) => sum + Number(item.amount), 0) || 0;

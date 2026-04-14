@@ -259,89 +259,76 @@ const Flats = () => {
           ) : filteredFlats.length === 0 ? (
             <EmptyState icon={Search} title="No results found" message={`No flats match "${searchTerm}"`} />
           ) : (
-            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {filteredFlats.map((flat) => (
-                <div key={flat.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
-                  {/* Flat Header */}
-                  <div className="p-5 border-b border-gray-100">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2.5 bg-green-100 rounded-lg">
-                          <DoorOpen className="text-green-600" size={22} />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900">Flat {flat.flat_number}</h3>
-                          {flat.floor_number && <p className="text-sm text-gray-500">Floor {flat.floor_number}</p>}
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <button onClick={() => handleEdit(flat)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                          <Edit2 size={16} />
-                        </button>
-                        <button onClick={() => setDeleteTarget(flat)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 space-y-1.5">
-                      {(flat.resident_name || flat.owner_name) && (
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <User size={14} className="text-gray-400" />
-                          <span>{flat.resident_name || flat.owner_name}</span>
-                        </div>
-                      )}
-                      {(flat.resident_phone || flat.owner_phone) && (
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <Phone size={14} className="text-gray-400" />
-                          <span>{flat.resident_phone || flat.owner_phone}</span>
-                        </div>
-                      )}
-                      {(flat.resident_email || flat.owner_email) && (
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <Mail size={14} className="text-gray-400" />
-                          <span className="truncate">{flat.resident_email || flat.owner_email}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Maintenance & Status (screenshot columns) */}
-                  <div className="px-5 py-4">
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="bg-gray-50 rounded-xl p-2.5 border border-gray-100">
-                        <p className="text-[10px] text-gray-500 leading-tight">Monthly</p>
-                        <p className="text-xs font-semibold text-gray-900 truncate">
-                          {flat.monthly_maintenance != null ? formatCurrency(flat.monthly_maintenance) : '-'}
-                        </p>
-                      </div>
-                      <div className="bg-red-50 rounded-xl p-2.5 border border-red-100">
-                        <p className="text-[10px] text-red-600 leading-tight">Pending</p>
-                        <p className="text-xs font-semibold text-red-600 truncate">
-                          {flat.pending_maintenance != null ? formatCurrency(flat.pending_maintenance) : '0'}
-                        </p>
-                      </div>
-                      <div className="bg-amber-50 rounded-xl p-2.5 border border-amber-100">
-                        <p className="text-[10px] text-amber-700 leading-tight">Other</p>
-                        <p className="text-xs font-semibold text-amber-900 truncate">
-                          {flat.other_maintenance != null ? formatCurrency(flat.other_maintenance) : '0'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-3">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
-                        (flat.is_occupied ?? true)
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-gray-200 text-gray-700'
-                      }`}>
-                        {(flat.is_occupied ?? true) ? 'Occupied' : 'Vacant'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Resident login is shared via Viewer Access Settings */}
-                </div>
-              ))}
+            <div className="bg-white rounded-xl border border-gray-200/90 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[960px] text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                    <tr>
+                      <th className="py-3 px-3">Flat</th>
+                      <th className="py-3 px-3">Floor</th>
+                      <th className="py-3 px-3">Resident</th>
+                      <th className="py-3 px-3">Phone</th>
+                      <th className="py-3 px-3">Email</th>
+                      <th className="py-3 px-3 text-right">Monthly</th>
+                      <th className="py-3 px-3 text-right">Pending</th>
+                      <th className="py-3 px-3 text-right">Other</th>
+                      <th className="py-3 px-3">Status</th>
+                      <th className="py-3 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredFlats.map((flat) => (
+                      <tr key={flat.id} className="hover:bg-gray-50/80">
+                        <td className="py-3 px-3 font-medium text-gray-900 whitespace-nowrap">{flat.flat_number}</td>
+                        <td className="py-3 px-3 text-gray-600">{flat.floor_number ?? '—'}</td>
+                        <td className="py-3 px-3 text-gray-800 max-w-[140px] truncate" title={flat.resident_name || flat.owner_name || ''}>
+                          {flat.resident_name || flat.owner_name || '—'}
+                        </td>
+                        <td className="py-3 px-3 text-gray-600 whitespace-nowrap">{flat.resident_phone || flat.owner_phone || '—'}</td>
+                        <td className="py-3 px-3 text-gray-600 max-w-[160px] truncate" title={flat.resident_email || flat.owner_email || ''}>
+                          {flat.resident_email || flat.owner_email || '—'}
+                        </td>
+                        <td className="py-3 px-3 text-right tabular-nums text-gray-900">
+                          {flat.monthly_maintenance != null ? formatCurrency(flat.monthly_maintenance) : '—'}
+                        </td>
+                        <td className="py-3 px-3 text-right tabular-nums text-rose-700">
+                          {flat.pending_maintenance != null ? formatCurrency(flat.pending_maintenance) : '—'}
+                        </td>
+                        <td className="py-3 px-3 text-right tabular-nums text-amber-800">
+                          {flat.other_maintenance != null ? formatCurrency(flat.other_maintenance) : '—'}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                              (flat.is_occupied ?? true) ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'
+                            }`}
+                          >
+                            {(flat.is_occupied ?? true) ? 'Occupied' : 'Vacant'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(flat)}
+                            className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg inline-flex"
+                            aria-label="Edit flat"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(flat)}
+                            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg inline-flex"
+                            aria-label="Delete flat"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </main>
@@ -361,7 +348,18 @@ const Flats = () => {
           <InputField label="Resident Email" type="email" name="resident_email" placeholder="resident@example.com" value={formData.resident_email} onChange={handleChange} icon={Mail} />
           <div className="grid grid-cols-2 gap-4">
             <InputField label="Monthly Maintenance (Rs)" type="number" name="monthly_maintenance" placeholder="0" value={formData.monthly_maintenance} onChange={handleChange} icon={IndianRupee} min="0" step="1" />
-            <InputField label="Pending Maintenance (Rs)" type="number" name="pending_maintenance" placeholder="0" value={formData.pending_maintenance} onChange={handleChange} icon={AlertCircle} min="0" step="1" />
+            <InputField
+              label="Old balance / arrears (Rs)"
+              type="number"
+              name="pending_maintenance"
+              placeholder="0"
+              value={formData.pending_maintenance}
+              onChange={handleChange}
+              icon={AlertCircle}
+              min="0"
+              step="1"
+              helperText="Added with monthly maintenance for total due (e.g. dashboard & maintenance screen)."
+            />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <InputField

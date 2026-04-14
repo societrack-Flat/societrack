@@ -68,6 +68,18 @@ const Maintenance = () => {
     }
   };
 
+  /** Expected maintenance due for a flat (monthly + arrears + other) — same idea as dashboard “pending maintenance”. */
+  const dueFromFlat = (flat) =>
+    Number(flat?.monthly_maintenance ?? 0) +
+    Number(flat?.pending_maintenance ?? 0) +
+    Number(flat?.other_maintenance ?? 0);
+
+  const normalizeFlatForRow = (flat) => ({
+    ...flat,
+    owner_name: flat.resident_name || flat.owner_name,
+    owner_phone: flat.resident_phone || flat.owner_phone,
+  });
+
   const fetchMaintenance = async () => {
     try {
       setLoading(true);
@@ -91,19 +103,33 @@ const Maintenance = () => {
       );
 
       // Create combined list with all flats
-      const combinedData = flats.map(flat => {
+      const combinedData = flats.map((flat) => {
+        const f = normalizeFlatForRow(flat);
         const existing = existingMap.get(flat.id);
-        return existing || {
+        const baseDue = dueFromFlat(flat);
+
+        if (existing) {
+          const raw = Number(existing.amount ?? 0);
+          const amount =
+            existing.status === 'pending' && (raw === 0 || Number.isNaN(raw)) ? baseDue : raw;
+          return {
+            ...existing,
+            amount,
+            flats: { ...f, ...(existing.flats || {}) },
+          };
+        }
+
+        return {
           id: null,
           apartment_id: activeApartmentId,
           flat_id: flat.id,
           month: selectedMonth,
           year: selectedYear,
-          amount: 0,
-          status: 'pending',
+          amount: baseDue,
+          status: baseDue > 0 ? 'pending' : 'paid',
           paid_date: null,
           paid_amount: 0,
-          flats: flat,
+          flats: f,
         };
       });
 
@@ -273,11 +299,62 @@ const Maintenance = () => {
     }
   };
 
-  const filteredMaintenance = maintenance.filter(item =>
-    searchTerm === '' ||
-    item.flats?.flat_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.flats?.owner_name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredMaintenance = maintenance.filter((item) => {
+    if (searchTerm === '') return true;
+    const q = searchTerm.toLowerCase();
+    const f = item.flats || {};
+    return (
+      (f.flat_number && String(f.flat_number).toLowerCase().includes(q)) ||
+      (f.owner_name && String(f.owner_name).toLowerCase().includes(q)) ||
+      (f.resident_name && String(f.resident_name).toLowerCase().includes(q))
+    );
+  });
+
+  const handleDownloadOverallFlatPending = () => {
+    if (!flats.length) {
+      toast.error('No flats to export');
+      return;
+    }
+    const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = [
+      'Flat',
+      'Resident/Owner',
+      'Phone',
+      'Monthly maintenance',
+      'Pending (arrears)',
+      'Other charges',
+      'Total (monthly + pending + other)',
+    ];
+    let grand = 0;
+    const lines = [
+      header.join(','),
+      ...flats.map((f) => {
+        const m = Number(f.monthly_maintenance ?? 0);
+        const p = Number(f.pending_maintenance ?? 0);
+        const o = Number(f.other_maintenance ?? 0);
+        const t = m + p + o;
+        grand += t;
+        return [
+          f.flat_number ?? '',
+          escape(f.resident_name || f.owner_name || ''),
+          escape(f.resident_phone || f.owner_phone || ''),
+          m,
+          p,
+          o,
+          t,
+        ].join(',');
+      }),
+      ['', '', '', '', '', 'Grand total (all flats)', grand].join(','),
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `all-flats-pending-and-charges-${apartment?.name?.replace(/\s+/g, '_') || 'society'}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Overall pending export started');
+  };
 
   const handleDownloadPending = () => {
     const pending = filteredMaintenance.filter((m) => m.status === 'pending');
@@ -328,12 +405,12 @@ const Maintenance = () => {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} role={userProfile?.role} />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar onMenuClick={() => setSidebarOpen(true)} title="Pending Maintenance" />
+        <TopBar onMenuClick={() => setSidebarOpen(true)} title="Maintenance" />
         
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">Pending Maintenance</h1>
-            <p className="text-gray-500 mt-1">Track unpaid maintenance for each month</p>
+            <h1 className="text-2xl font-bold text-gray-900">Maintenance</h1>
+            <p className="text-gray-500 mt-1">Track monthly maintenance and payments per flat</p>
           </div>
 
           {/* Filters */}
@@ -370,7 +447,10 @@ const Maintenance = () => {
             </div>
 
             <Button variant="outline" icon={Download} onClick={handleDownloadPending}>
-              Download Pending
+              Download month pending
+            </Button>
+            <Button variant="outline" icon={Download} onClick={handleDownloadOverallFlatPending}>
+              Download all flats (totals)
             </Button>
 
             {stats.pendingCount > 0 && (
@@ -482,7 +562,9 @@ const Maintenance = () => {
                               {formatCurrency(item.paid_amount || item.amount)}
                             </span>
                           ) : (
-                            <span className="text-gray-400">-</span>
+                            <span className="font-semibold text-amber-800">
+                              {formatCurrency(item.amount ?? 0)}
+                            </span>
                           )}
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-600">

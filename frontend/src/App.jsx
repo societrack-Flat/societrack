@@ -74,7 +74,17 @@ const BootstrapFailedScreen = ({ message, onRetry, onLogin }) => (
 );
 
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
-  const { user, userProfile, loading, profileLoaded, isResident, checkSubscription, bootstrapError, retryBootstrap } = useAuth();
+  const {
+    user,
+    userProfile,
+    loading,
+    profileLoaded,
+    isResident,
+    checkSubscription,
+    bootstrapError,
+    retryBootstrap,
+    saManagedApartmentId,
+  } = useAuth();
 
   console.log('[ProtectedRoute] render:', {
     hasUser: !!user,
@@ -131,10 +141,18 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     return <Navigate to="/signup" replace />;
   }
 
-  // Wrong role
-  if (allowedRoles.length > 0 && !allowedRoles.includes(userProfile.role)) {
+  const roleAllowed =
+    allowedRoles.length === 0 ||
+    allowedRoles.includes(userProfile.role) ||
+    (allowedRoles.includes('admin') &&
+      userProfile.role === 'super_admin' &&
+      !!saManagedApartmentId);
+
+  if (allowedRoles.length > 0 && !roleAllowed) {
     console.log('[ProtectedRoute] wrong role, redirecting:', userProfile.role);
-    if (userProfile.role === 'super_admin') return <Navigate to="/superadmin/dashboard" replace />;
+    if (userProfile.role === 'super_admin') {
+      return <Navigate to="/superadmin/apartments" replace />;
+    }
     if (userProfile.role === 'admin') return <Navigate to="/admin/dashboard" replace />;
     return <Navigate to="/login" replace />;
   }

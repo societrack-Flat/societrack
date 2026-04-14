@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Building2,
@@ -21,7 +21,9 @@ import BrandLogo from './BrandLogo';
 
 const Sidebar = ({ isOpen, onClose, role }) => {
   const location = useLocation();
-  const { userProfile, apartment, signOut, isResident } = useAuth();
+  const navigate = useNavigate();
+  const { userProfile, apartment, signOut, isResident, saManagedApartmentId, exitSaManageMode } = useAuth();
+  const isSaManaging = userProfile?.role === 'super_admin' && !!saManagedApartmentId;
 
   const adminNavItems = [
     {
@@ -38,7 +40,7 @@ const Sidebar = ({ isOpen, onClose, role }) => {
       title: 'MANAGEMENT',
       items: [
         { name: 'Reports', icon: BarChart3, path: '/admin/reports' },
-        { name: 'Pending Maintenance', icon: Clock, path: '/admin/maintenance' },
+        { name: 'Maintenance', icon: Clock, path: '/admin/maintenance' },
         { name: 'Announcements', icon: Megaphone, path: '/admin/announcements' },
       ],
     },
@@ -71,7 +73,7 @@ const Sidebar = ({ isOpen, onClose, role }) => {
         { name: 'Dashboard', icon: LayoutDashboard, path: '/resident/dashboard' },
         { name: 'Income', icon: IndianRupee, path: '/resident/income' },
         { name: 'Expenses', icon: Receipt, path: '/resident/expenses' },
-        { name: 'My Maintenance', icon: Clock, path: '/resident/maintenance' },
+        { name: 'Maintenance', icon: Clock, path: '/resident/maintenance' },
         { name: 'Announcements', icon: Megaphone, path: '/resident/announcements' },
         { name: 'Reports', icon: BarChart3, path: '/resident/reports' },
       ],
@@ -80,7 +82,7 @@ const Sidebar = ({ isOpen, onClose, role }) => {
 
   const getNavItems = () => {
     if (isResident) return residentNavItems;
-    if (role === 'super_admin') return superAdminNavItems;
+    if (role === 'super_admin' && !isSaManaging) return superAdminNavItems;
     return adminNavItems;
   };
 
@@ -108,7 +110,7 @@ const Sidebar = ({ isOpen, onClose, role }) => {
         <div className="flex flex-col h-full">
           {/* Logo / Super Admin branding */}
           <div className="flex items-center justify-between min-h-[4rem] px-4 border-b border-slate-700">
-            {role === 'super_admin' ? (
+            {role === 'super_admin' && !isSaManaging ? (
               <div className="flex items-center gap-3 py-3">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-pink-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
                   SA
@@ -133,6 +135,25 @@ const Sidebar = ({ isOpen, onClose, role }) => {
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto py-4 px-3">
+            {isSaManaging && (
+              <div className="mb-4 px-3">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Super Admin</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    exitSaManageMode();
+                    onClose?.();
+                    navigate('/superadmin/apartments');
+                  }}
+                  className="w-full text-left text-xs px-3 py-2 rounded-lg bg-slate-700/80 text-slate-200 hover:bg-slate-600 border border-slate-600"
+                >
+                  ← Exit to Super Admin
+                </button>
+                <p className="text-xs text-slate-400 mt-2 line-clamp-2" title={apartment?.name}>
+                  Managing: <span className="text-lime-300 font-medium">{apartment?.name || '…'}</span>
+                </p>
+              </div>
+            )}
             {navItems.map((section, idx) => (
               <div key={idx} className="mb-6">
                 <p className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">
@@ -169,7 +190,7 @@ const Sidebar = ({ isOpen, onClose, role }) => {
 
           {/* User info & Logout */}
           <div className="p-4 border-t border-slate-700">
-            {role === 'super_admin' && (
+            {role === 'super_admin' && !isSaManaging && (
               <p className="text-xs text-slate-500 mb-3 px-1">Super Admin</p>
             )}
             <div className="flex items-center gap-3 mb-4">

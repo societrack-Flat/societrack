@@ -706,31 +706,42 @@ const Income = () => {
             />
           </div>
 
-          <InputField
-            label="Category"
-            type="select"
-            name="category"
-            value={formData.category}
-            onChange={handleChange}
-            required
-            options={[
-              { value: '', label: 'Select Category' },
-              ...categories.map(cat => ({ value: cat.name, label: cat.name })),
-              { value: 'Maintenance', label: 'Maintenance' },
-              { value: 'Penalty', label: 'Penalty' },
-              { value: 'Other Income', label: 'Other Income' },
-              { value: 'Other', label: 'Other' },
-            ]}
-          />
-
-          <InputField
-            label="Maintenance Month"
-            type="month"
-            name="maintenance_month"
-            value={formData.maintenance_month}
-            onChange={handleChange}
-            helperText="Optional — e.g. which month this maintenance applies to"
-          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <InputField
+              label="Category"
+              type="select"
+              name="category"
+              value={formData.category}
+              onChange={handleChange}
+              required
+              options={[
+                { value: '', label: 'Select Category' },
+                ...categories.map(cat => ({ value: cat.name, label: cat.name })),
+                { value: 'Maintenance', label: 'Maintenance' },
+                { value: 'Penalty', label: 'Penalty' },
+                { value: 'Other Income', label: 'Other Income' },
+                { value: 'Other', label: 'Other' },
+              ]}
+            />
+            <div className="space-y-1">
+              <label className="block text-sm font-medium text-gray-700" htmlFor="income-maintenance-month">
+                Maintenance month <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input
+                id="income-maintenance-month"
+                type="text"
+                name="maintenance_month"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="YYYY-MM"
+                pattern="[0-9]{4}-[0-9]{2}"
+                value={formData.maintenance_month}
+                onChange={handleChange}
+                className="w-full bg-gray-100 border-0 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:bg-white"
+              />
+              <p className="text-xs text-gray-500">Enter like 2026-04 — avoids the month-picker dots in some browsers.</p>
+            </div>
+          </div>
 
           <InputField
             label="Payment Mode"
