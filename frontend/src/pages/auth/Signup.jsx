@@ -319,7 +319,7 @@ const Signup = () => {
             </p>
             <div className="space-y-4 pt-4">
               {[
-                { icon: Sparkles, text: '7-day free trial, no card required' },
+                { icon: Sparkles, text: 'Transparent income & expense tracking' },
                 { icon: Shield, text: 'Bank-level security' },
                 { icon: Zap, text: 'Setup in under 5 minutes' },
               ].map((item, index) => (
@@ -438,7 +438,7 @@ const Signup = () => {
                   <Sparkles size={18} /> What happens next?
                 </h4>
                 <ul className="space-y-2">
-                  {['7-day free trial starts immediately', 'No credit card required', 'Full access to all features', 'You can edit apartment details later'].map((item, i) => (
+                  {['Create your society workspace in minutes', 'No credit card required to sign up', 'Full access to admin & resident features', 'You can edit apartment details anytime'].map((item, i) => (
                     <motion.li
                       key={i}
                       initial={{ opacity: 0, x: -10 }}

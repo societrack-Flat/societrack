@@ -78,6 +78,7 @@ const Dashboard = () => {
     totalIncome: 0,
     totalExpenses: 0,
     otherMaintenanceOnFlats: 0,
+    openingBalance: 0,
   });
 
   const { apartment, userProfile, checkSubscription, profileLoaded } = useAuth();
@@ -128,6 +129,7 @@ const Dashboard = () => {
         { data: recentIncomeData },
         { data: recentExpenseData },
         { data: flatsOtherRows },
+        { data: aptOpeningRow },
       ] = await withTimeout(
         Promise.all([
           supabase.from('flats').select('*', { count: 'exact', head: true }).eq('apartment_id', activeApartmentId),
@@ -140,6 +142,7 @@ const Dashboard = () => {
           supabase.from('income').select('*').eq('apartment_id', activeApartmentId).order('date', { ascending: false }).limit(4),
           supabase.from('expenses').select('*').eq('apartment_id', activeApartmentId).order('date', { ascending: false }).limit(4),
           supabase.from('flats').select('id, other_maintenance').eq('apartment_id', activeApartmentId),
+          supabase.from('apartments').select('opening_balance').eq('id', activeApartmentId).maybeSingle(),
         ]),
         DASHBOARD_STATS_MS
       );
@@ -151,6 +154,8 @@ const Dashboard = () => {
       const periodExpense = periodExpenseRows?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const allIncomeSum = totalIncomeData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const allExpenseSum = totalExpensesData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
+      const openingBal = Number(aptOpeningRow?.opening_balance ?? 0);
+      const periodNetIncomeExpense = periodIncome - periodExpense;
 
       setRecentIncome(recentIncomeData || []);
       setRecentExpenses(recentExpenseData || []);
@@ -160,7 +165,8 @@ const Dashboard = () => {
         totalExpensesThisMonth: periodExpense,
         totalIncome: allIncomeSum,
         totalExpenses: allExpenseSum,
-        currentBalance: periodIncome - periodExpense,
+        currentBalance: timeRange === 'all' ? openingBal + periodNetIncomeExpense : periodNetIncomeExpense,
+        openingBalance: openingBal,
         maintenanceCollected: maintenancePaidData?.reduce((s, i) => s + Number(i.paid_amount), 0) || 0,
         maintenancePending: maintenancePendingData?.reduce((s, i) => s + Number(i.amount), 0) || 0,
         totalFlats: totalFlats ?? 0,
@@ -296,9 +302,16 @@ const Dashboard = () => {
   const expenseStatLabel =
     timeRange === 'all' ? 'Total Expenses' : timeRange === 'month' ? 'Expenses (this month)' : 'Expenses (period)';
   const netStatLabel =
-    timeRange === 'all' ? 'Net (all time)' : timeRange === 'month' ? 'Net (this month)' : 'Net (period)';
+    timeRange === 'all'
+      ? 'Net (all time, incl. opening)'
+      : timeRange === 'month'
+        ? 'Net (this month)'
+        : 'Net (period)';
 
-  const periodNet = stats.totalIncomeThisMonth - stats.totalExpensesThisMonth;
+  const periodNet =
+    timeRange === 'all'
+      ? stats.openingBalance + stats.totalIncomeThisMonth - stats.totalExpensesThisMonth
+      : stats.totalIncomeThisMonth - stats.totalExpensesThisMonth;
 
   const handleViewBill = async (attachmentUrl) => {
     if (!attachmentUrl) return;
