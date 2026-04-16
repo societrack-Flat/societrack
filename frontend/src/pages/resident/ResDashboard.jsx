@@ -16,6 +16,7 @@ import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
 import toast from 'react-hot-toast';
 import DashboardMonthlyBarChart from '../../components/DashboardMonthlyBarChart';
+import { pendingTotalForDashboardPeriod } from '../../utils/maintenancePending';
 
 /** Match admin dashboard accent */
 const DASH_GREEN = '#22c55e';
@@ -108,28 +109,6 @@ function sumMaintenanceCollectedForPeriod(rows, timeRange, customFrom, customTo)
   }, 0);
 }
 
-/** Pending $ on dashboard must match Maintenance screen: sum `maintenance.amount` where status is pending (not flat master fields). */
-function sumPendingMaintenanceForPeriod(rows, timeRange, customFrom, customTo) {
-  const now = new Date();
-  const currentMonth = now.getMonth() + 1;
-  const currentYear = now.getFullYear();
-  return (rows || []).reduce((sum, m) => {
-    if (m.status !== 'pending') return sum;
-    const amt = Number(m.amount ?? 0);
-    if (timeRange === 'all') return sum + amt;
-    if (timeRange === 'month') {
-      return m.month === currentMonth && m.year === currentYear ? sum + amt : sum;
-    }
-    if (timeRange === 'custom' && customFrom && customTo) {
-      const rowYm = `${m.year}-${String(m.month).padStart(2, '0')}`;
-      const fromYm = customFrom.slice(0, 7);
-      const toYm = customTo.slice(0, 7);
-      return rowYm >= fromYm && rowYm <= toYm ? sum + amt : sum;
-    }
-    return sum;
-  }, 0);
-}
-
 const ResDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -212,7 +191,7 @@ const ResDashboard = () => {
           supabase.from('expenses').select('amount').eq('apartment_id', selectedApartmentId),
           supabase
             .from('maintenance')
-            .select('amount, paid_amount, paid_date, month, year, status')
+            .select('amount, paid_amount, paid_date, month, year, status, flat_id')
             .eq('apartment_id', selectedApartmentId),
           supabase.from('apartments').select('opening_balance').eq('id', selectedApartmentId).maybeSingle(),
         ]),
@@ -222,16 +201,17 @@ const ResDashboard = () => {
       let announcementRows = [];
       const { data: ann, error: annErr } = await supabase
         .from('announcements')
-        .select('id, title, message, priority, created_at')
+        .select('id, title, message, priority, created_at, expiry_date')
         .eq('apartment_id', selectedApartmentId)
         .order('created_at', { ascending: false })
-        .limit(4);
+        .limit(12);
       if (!annErr) announcementRows = ann || [];
 
       const flatsList = flatRows || [];
       const totalFlats = flatsList.length;
       const maintenancePaidRows = (maintenanceRows || []).filter((m) => m.status === 'paid');
-      const totalFlatPendingMaintenance = sumPendingMaintenanceForPeriod(
+      const totalFlatPendingMaintenance = pendingTotalForDashboardPeriod(
+        flatsList,
         maintenanceRows || [],
         timeRange,
         customFrom,
@@ -247,7 +227,15 @@ const ResDashboard = () => {
       const allExpenseSum = totalExpensesData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const periodNetIncomeExpense = periodIncome - periodExpense;
 
-      setAnnouncementPreview(announcementRows || []);
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const activeAnnouncements = (announcementRows || []).filter((a) => {
+        if (!a.expiry_date) return true;
+        const exp = new Date(a.expiry_date);
+        exp.setHours(0, 0, 0, 0);
+        return exp >= todayStart;
+      });
+      setAnnouncementPreview(activeAnnouncements.slice(0, 4));
 
       setStats({
         totalIncomeThisMonth: periodIncome,
@@ -532,29 +520,28 @@ const ResDashboard = () => {
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-6">
+              <div className="rounded-xl border-2 border-red-500 bg-red-50 shadow-sm p-5 mb-6">
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2">
-                    <Megaphone className="text-[#16a34a]" size={18} />
-                    <h2 className="text-sm font-semibold text-gray-900">Latest Announcement</h2>
+                    <Megaphone className="text-red-600" size={18} />
+                    <h2 className="text-sm font-semibold text-red-600">Latest Announcement</h2>
                   </div>
                   <Link
                     to="/resident/announcements"
-                    className="text-xs font-medium flex items-center gap-0.5 hover:underline"
-                    style={{ color: DASH_GREEN }}
+                    className="text-xs font-medium flex items-center gap-0.5 hover:underline text-red-600"
                   >
                     View <ArrowRight size={12} />
                   </Link>
                 </div>
                 {announcementPreview.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-6">No announcements available.</p>
+                  <p className="text-sm text-red-700/80 text-center py-6">No announcements available.</p>
                 ) : (
                   <ul className="space-y-3">
                     {announcementPreview.slice(0, 1).map((a) => (
                       <li key={a.id}>
-                        <p className="text-sm font-medium text-gray-900">{a.title || 'Announcement'}</p>
-                        <p className="text-xs text-gray-600 mt-1 line-clamp-3">{a.message}</p>
-                        <p className="text-[10px] text-gray-400 mt-2">{a.created_at ? formatDate(a.created_at) : ''}</p>
+                        <p className="text-sm font-medium text-red-700">{a.title || 'Announcement'}</p>
+                        <p className="text-xs text-red-700 mt-1 line-clamp-3">{a.message}</p>
+                        <p className="text-[10px] text-red-600/80 mt-2">{a.created_at ? formatDate(a.created_at) : ''}</p>
                       </li>
                     ))}
                   </ul>

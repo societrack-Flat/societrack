@@ -4,7 +4,7 @@ import { formatCurrency } from '../lib/supabaseClient';
 
 const W = 560;
 const H = 220;
-const PAD_L = 44;
+const PAD_L = 56;
 const PAD_R = 14;
 const PAD_T = 14;
 const PAD_B = 34;
@@ -14,6 +14,29 @@ const monthLabel = (ym) => {
   const d = new Date(y, (m || 1) - 1, 1);
   return d.toLocaleString('en-IN', { month: 'short' });
 };
+
+/** Round max up so Y-axis ticks are readable (1 / 2 / 2.5 / 5 × 10^n). */
+function niceCeilMax(raw) {
+  if (raw <= 0) return 1;
+  const exp = Math.floor(Math.log10(raw));
+  const base = 10 ** exp;
+  const frac = raw / base;
+  let nice = 10;
+  if (frac <= 1) nice = 1;
+  else if (frac <= 2) nice = 2;
+  else if (frac <= 5) nice = 5;
+  else nice = 10;
+  return nice * base;
+}
+
+function formatAxisInr(n) {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+    notation: n >= 100000 ? 'compact' : 'standard',
+  }).format(n);
+}
 
 /**
  * Grouped bar chart: income (green) + expenses (red) per month.
@@ -25,7 +48,8 @@ export default function DashboardMonthlyBarChart({
   expenseColor = '#ef4444',
 }) {
   const { maxValue, bars, yBase } = useMemo(() => {
-    const max = items.reduce((m, it) => Math.max(m, Number(it.income || 0), Number(it.expense || 0)), 0) || 1;
+    const rawMax = items.reduce((m, it) => Math.max(m, Number(it.income || 0), Number(it.expense || 0)), 0) || 0;
+    const max = niceCeilMax(rawMax);
     const innerW = W - PAD_L - PAD_R;
     const innerH = H - PAD_T - PAD_B;
     const n = items.length;
@@ -38,8 +62,8 @@ export default function DashboardMonthlyBarChart({
       const x0 = PAD_L + i * (groupW + gap);
       const inc = Number(it.income || 0);
       const exp = Number(it.expense || 0);
-      const hInc = innerH * (inc / max);
-      const hExp = innerH * (exp / max);
+      const hInc = max > 0 ? innerH * (inc / max) : 0;
+      const hExp = max > 0 ? innerH * (exp / max) : 0;
       return {
         ym: it.month,
         xInc: x0,
@@ -84,19 +108,30 @@ export default function DashboardMonthlyBarChart({
       </div>
 
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Monthly income and expenses bar chart">
-        {/* Horizontal grid lines */}
+        {/* Horizontal grid lines + Y-axis amount labels (dynamic from maxValue) */}
         {[0, 0.25, 0.5, 0.75, 1].map((t) => {
           const y = PAD_T + (H - PAD_T - PAD_B) * (1 - t);
+          const tickAmt = maxValue * t;
           return (
-            <line
-              key={`h-${t}`}
-              x1={PAD_L}
-              y1={y}
-              x2={W - PAD_R}
-              y2={y}
-              stroke="#e5e7eb"
-              strokeWidth="1"
-            />
+            <g key={`h-${t}`}>
+              <line
+                x1={PAD_L}
+                y1={y}
+                x2={W - PAD_R}
+                y2={y}
+                stroke="#e5e7eb"
+                strokeWidth="1"
+              />
+              <text
+                x={PAD_L - 6}
+                y={y + 4}
+                textAnchor="end"
+                fill="#6b7280"
+                style={{ fontSize: '9px' }}
+              >
+                {formatAxisInr(tickAmt)}
+              </text>
+            </g>
           );
         })}
 
@@ -157,7 +192,9 @@ export default function DashboardMonthlyBarChart({
       </svg>
 
       <div className="mt-2 text-[11px] text-gray-500">
-        <span>Scale max: {formatCurrency(maxValue)}</span>
+        <span>
+          Y-axis: 0 – {formatCurrency(maxValue)} (scales with data)
+        </span>
       </div>
     </div>
   );

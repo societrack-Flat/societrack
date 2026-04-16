@@ -11,7 +11,7 @@ import EmptyState from '../../components/EmptyState';
 import toast from 'react-hot-toast';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
-import { getMaintenanceMonthOptions } from '../../utils/maintenanceMonthOptions';
+import { CALENDAR_MONTH_OPTIONS, getMaintenanceYearOptions } from '../../utils/maintenanceMonthOptions';
 
 const formatMaintMonthLabel = (val) => {
   if (!val || !/^\d{4}-\d{2}$/.test(String(val))) return '—';
@@ -36,15 +36,19 @@ const Income = () => {
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [uploadingFile, setUploadingFile] = useState(false);
   
-  const [formData, setFormData] = useState({
-    flat_id: '',
-    amount: '',
-    category: '',
-    description: '',
-    date: new Date().toISOString().split('T')[0],
-    payment_mode: 'cash',
-    maintenance_month: '',
-    attachment: null,
+  const [formData, setFormData] = useState(() => {
+    const d = new Date();
+    return {
+      flat_id: '',
+      amount: '',
+      category: '',
+      description: '',
+      date: d.toISOString().split('T')[0],
+      payment_mode: 'cash',
+      maintenanceYear: String(d.getFullYear()),
+      maintenanceMonth: String(d.getMonth() + 1),
+      attachment: null,
+    };
   });
 
   const [residentPreview, setResidentPreview] = useState({
@@ -66,18 +70,6 @@ const Income = () => {
 
   const { apartment, userProfile, profileLoaded } = useAuth();
   const activeApartmentId = useAdminActiveApartment();
-
-  const maintenanceMonthSelectOptions = useMemo(() => {
-    const base = getMaintenanceMonthOptions();
-    const v = formData.maintenance_month;
-    if (v && /^\d{4}-\d{2}$/.test(String(v)) && !base.some((o) => o.value === v)) {
-      const [y, mo] = String(v).split('-').map(Number);
-      const d = new Date(y, mo - 1, 1);
-      const label = d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
-      return [{ value: v, label }, ...base].sort((a, b) => a.value.localeCompare(b.value));
-    }
-    return base;
-  }, [formData.maintenance_month]);
 
   useEffect(() => {
     if (activeApartmentId) {
@@ -145,17 +137,18 @@ const Income = () => {
     if (name === 'attachment') {
       setFormData({ ...formData, attachment: files[0] });
     } else if (name === 'flat_id') {
-      const flat = flats.find((f) => f.id === value);
-      const maint = flat?.monthly_maintenance;
-      const amountFromFlat =
-        maint != null && maint !== '' && !Number.isNaN(Number(maint))
-          ? String(Number(maint))
-          : undefined;
-      setFormData({
-        ...formData,
-        flat_id: value,
-        ...(amountFromFlat !== undefined ? { amount: amountFromFlat } : {}),
+      setFormData((prev) => {
+        const flat = flats.find((f) => f.id === value);
+        let amount = '';
+        if (value && flat) {
+          const maint = flat?.monthly_maintenance;
+          if (maint != null && maint !== '' && !Number.isNaN(Number(maint))) {
+            amount = String(Number(maint));
+          }
+        }
+        return { ...prev, flat_id: value, amount };
       });
+      const flat = flats.find((f) => f.id === value);
       if (flat) {
         setResidentPreview({
           name: flat.resident_name || flat.owner_name || '',
@@ -182,6 +175,11 @@ const Income = () => {
       return;
     }
 
+    if (!formData.maintenanceYear || !formData.maintenanceMonth) {
+      toast.error('Maintenance month is required');
+      return;
+    }
+
     try {
       setLoading(true);
       let attachmentUrl = null;
@@ -196,10 +194,7 @@ const Income = () => {
         setUploadingFile(false);
       }
 
-      const mm =
-        formData.maintenance_month && /^\d{4}-\d{2}$/.test(formData.maintenance_month)
-          ? formData.maintenance_month
-          : null;
+      const mm = `${formData.maintenanceYear}-${String(Number(formData.maintenanceMonth)).padStart(2, '0')}`;
 
       const incomeData = {
         apartment_id: activeApartmentId,
@@ -209,7 +204,7 @@ const Income = () => {
         description: formData.description || null,
         date: formData.date,
         payment_mode: formData.payment_mode,
-        ...(mm ? { maintenance_month: mm } : { maintenance_month: null }),
+        maintenance_month: mm,
         attachment_url: attachmentUrl || editingIncome?.attachment_url,
         attachment_name: attachmentName || editingIncome?.attachment_name,
         created_by: userProfile.id,
@@ -390,6 +385,14 @@ const Income = () => {
 
   const handleEdit = (item) => {
     setEditingIncome(item);
+    const d = new Date();
+    let maintenanceYear = String(d.getFullYear());
+    let maintenanceMonth = String(d.getMonth() + 1);
+    if (item.maintenance_month && /^\d{4}-\d{2}$/.test(String(item.maintenance_month))) {
+      const [y, m] = String(item.maintenance_month).split('-');
+      maintenanceYear = y;
+      maintenanceMonth = String(Number(m));
+    }
     setFormData({
       flat_id: item.flat_id || '',
       amount: item.amount.toString(),
@@ -397,7 +400,8 @@ const Income = () => {
       description: item.description || '',
       date: item.date,
       payment_mode: item.payment_mode || 'cash',
-      maintenance_month: item.maintenance_month || '',
+      maintenanceYear,
+      maintenanceMonth,
       attachment: null,
     });
     const flat = flats.find((f) => f.id === item.flat_id);
@@ -447,14 +451,16 @@ const Income = () => {
   };
 
   const resetForm = () => {
+    const d = new Date();
     setFormData({
       flat_id: '',
       amount: '',
       category: '',
       description: '',
-      date: new Date().toISOString().split('T')[0],
+      date: d.toISOString().split('T')[0],
       payment_mode: 'cash',
-      maintenance_month: '',
+      maintenanceYear: String(d.getFullYear()),
+      maintenanceMonth: String(d.getMonth() + 1),
       attachment: null,
     });
     setResidentPreview({ name: '', phone: '', email: '' });
@@ -746,15 +752,22 @@ const Income = () => {
               ]}
             />
             <InputField
-              label="Maintenance month"
+              label="Year"
               type="select"
-              name="maintenance_month"
-              value={formData.maintenance_month}
+              name="maintenanceYear"
+              value={formData.maintenanceYear}
               onChange={handleChange}
-              options={[
-                { value: '', label: '— (optional)' },
-                ...maintenanceMonthSelectOptions,
-              ]}
+              required
+              options={getMaintenanceYearOptions()}
+            />
+            <InputField
+              label="Month"
+              type="select"
+              name="maintenanceMonth"
+              value={formData.maintenanceMonth}
+              onChange={handleChange}
+              required
+              options={CALENDAR_MONTH_OPTIONS}
             />
           </div>
 

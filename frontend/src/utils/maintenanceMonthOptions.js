@@ -1,3 +1,18 @@
+/** January–December for maintenance period (value 1–12). */
+export const CALENDAR_MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
+  value: String(i + 1),
+  label: new Date(2000, i, 1).toLocaleString('en-IN', { month: 'long' }),
+}));
+
+/** Years around current (for maintenance year select). */
+export function getMaintenanceYearOptions() {
+  const y = new Date().getFullYear();
+  return Array.from({ length: 7 }, (_, i) => {
+    const year = y - 2 + i;
+    return { value: String(year), label: String(year) };
+  });
+}
+
 /**
  * YYYY-MM options for maintenance month selects: past 24 months through next 6.
  */

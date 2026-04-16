@@ -34,7 +34,15 @@ const ResAnnouncements = () => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setAnnouncements(data || []);
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const rows = (data || []).filter((a) => {
+        if (!a.expiry_date) return true;
+        const exp = new Date(a.expiry_date);
+        exp.setHours(0, 0, 0, 0);
+        return exp >= todayStart;
+      });
+      setAnnouncements(rows);
     } catch (error) {
       console.error('Error fetching announcements:', error);
       toast.error('Failed to load announcements');

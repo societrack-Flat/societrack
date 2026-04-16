@@ -223,9 +223,17 @@ const Maintenance = () => {
         created_by: userProfile.id,
       });
 
+      const paidNum = parseFloat(paymentData.paid_amount);
+      const dueNum = Number(selectedMaintenance.amount ?? 0);
+      const flatRow = flats.find((f) => f.id === selectedMaintenance.flat_id);
+      if (flatRow && paidNum >= dueNum - 0.01) {
+        await supabase.from('flats').update({ pending_maintenance: 0 }).eq('id', selectedMaintenance.flat_id);
+      }
+
       toast.success('Payment recorded successfully');
       setShowPayModal(false);
       setSelectedMaintenance(null);
+      fetchFlats();
       fetchMaintenance();
     } catch (error) {
       console.error('Error recording payment:', error);
@@ -291,7 +299,14 @@ const Maintenance = () => {
 
       await supabase.from('income').insert(incomeRecords);
 
+      await Promise.all(
+        pendingItems.map((item) =>
+          supabase.from('flats').update({ pending_maintenance: 0 }).eq('id', item.flat_id)
+        )
+      );
+
       toast.success(`Marked ${pendingItems.length} flats as paid`);
+      fetchFlats();
       fetchMaintenance();
     } catch (error) {
       console.error('Error bulk marking paid:', error);
