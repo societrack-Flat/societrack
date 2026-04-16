@@ -9,6 +9,9 @@ import {
   FileText,
   Megaphone,
   Wallet,
+  LayoutDashboard,
+  Receipt,
+  BarChart3,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, formatCurrency, getSignedUrl, formatDate } from '../../lib/supabaseClient';
@@ -16,10 +19,19 @@ import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
 import toast from 'react-hot-toast';
 import DashboardMonthlyBarChart from '../../components/DashboardMonthlyBarChart';
-import ExpenseDonutChart from '../../components/ExpenseDonutChart';
 
 /** Match admin dashboard accent */
 const DASH_GREEN = '#22c55e';
+
+/** Resident main nav — quick access (same destinations as sidebar; no add-income/add-expense). */
+const RESIDENT_QUICK_LINKS = [
+  { to: '/resident/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/resident/income', label: 'Income', icon: IndianRupee },
+  { to: '/resident/expenses', label: 'Expenses', icon: Receipt },
+  { to: '/resident/maintenance', label: 'Maintenance', icon: Clock },
+  { to: '/resident/announcements', label: 'Announcements', icon: Megaphone },
+  { to: '/resident/reports', label: 'Reports', icon: BarChart3 },
+];
 
 const DASHBOARD_STATS_MS = 20000;
 
@@ -135,11 +147,8 @@ const ResDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedApartmentId, setSelectedApartmentId] = useState('');
-  const [recentIncome, setRecentIncome] = useState([]);
-  const [recentExpenses, setRecentExpenses] = useState([]);
   const [recentTransactions, setRecentTransactions] = useState([]);
   const [chartItems, setChartItems] = useState([]);
-  const [expenseByCategory, setExpenseByCategory] = useState([]);
   const [announcementPreview, setAnnouncementPreview] = useState([]);
   const [timeRange, setTimeRange] = useState('all'); // all | month | custom
   const [customFrom, setCustomFrom] = useState('');
@@ -186,7 +195,7 @@ const ResDashboard = () => {
       const { from, to } = getRangeBounds(timeRange, customFrom, customTo);
 
       let periodIncomeQ = supabase.from('income').select('amount').eq('apartment_id', selectedApartmentId);
-      let periodExpenseQ = supabase.from('expenses').select('amount, category').eq('apartment_id', selectedApartmentId);
+      let periodExpenseQ = supabase.from('expenses').select('amount').eq('apartment_id', selectedApartmentId);
       if (from) {
         periodIncomeQ = periodIncomeQ.gte('date', from);
         periodExpenseQ = periodExpenseQ.gte('date', from);
@@ -203,8 +212,6 @@ const ResDashboard = () => {
         { data: totalIncomeData },
         { data: totalExpensesData },
         { data: maintenanceRows },
-        { data: recentIncomeData },
-        { data: recentExpenseData },
         { data: aptOpeningRow },
       ] = await withTimeout(
         Promise.all([
@@ -220,8 +227,6 @@ const ResDashboard = () => {
             .from('maintenance')
             .select('amount, paid_amount, paid_date, month, year, status')
             .eq('apartment_id', selectedApartmentId),
-          supabase.from('income').select('*').eq('apartment_id', selectedApartmentId).order('date', { ascending: false }).limit(4),
-          supabase.from('expenses').select('*').eq('apartment_id', selectedApartmentId).order('date', { ascending: false }).limit(4),
           supabase.from('apartments').select('opening_balance').eq('id', selectedApartmentId).maybeSingle(),
         ]),
         DASHBOARD_STATS_MS
@@ -251,22 +256,10 @@ const ResDashboard = () => {
       const periodIncome = periodIncomeRows?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const periodExpense = periodExpenseRows?.reduce((s, i) => s + Number(i.amount), 0) || 0;
 
-      const catMap = {};
-      (periodExpenseRows || []).forEach((row) => {
-        const c = String(row.category || 'Uncategorized').trim() || 'Uncategorized';
-        catMap[c] = (catMap[c] || 0) + Number(row.amount || 0);
-      });
-      setExpenseByCategory(
-        Object.entries(catMap)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 8)
-      );
       const allIncomeSum = totalIncomeData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const allExpenseSum = totalExpensesData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const periodNetIncomeExpense = periodIncome - periodExpense;
 
-      setRecentIncome(recentIncomeData || []);
-      setRecentExpenses(recentExpenseData || []);
       setAnnouncementPreview(announcementRows || []);
 
       setStats({
@@ -581,76 +574,28 @@ const ResDashboard = () => {
                 )}
               </div>
 
-              <div className="grid lg:grid-cols-2 gap-4 mb-8">
-                <DashboardMonthlyBarChart items={barChartItems} incomeColor={DASH_GREEN} />
-                <ExpenseDonutChart entries={expenseByCategory} />
-              </div>
-
-              <div className="flex flex-wrap gap-3 text-sm mb-8">
-                <Link to="/resident/income" className="font-medium hover:underline" style={{ color: DASH_GREEN }}>
-                  View all income records <ArrowRight className="inline" size={14} />
-                </Link>
-                <span className="text-gray-300">|</span>
-                <Link to="/resident/expenses" className="text-gray-600 font-medium hover:text-gray-900">
-                  View all expenses
-                </Link>
-                <span className="text-gray-300">|</span>
-                <Link to="/resident/reports" className="text-gray-600 font-medium hover:text-gray-900">
-                  Reports
-                </Link>
-              </div>
-
-              <div className="grid lg:grid-cols-2 gap-4 mb-6">
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-900">Recent Income</h3>
-                    <Link to="/resident/income" className="text-xs font-medium flex items-center gap-1 hover:underline" style={{ color: DASH_GREEN }}>
-                      View all <ArrowRight size={12} />
-                    </Link>
-                  </div>
-                  {recentIncome.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-6">No income records yet</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {recentIncome.map(item => (
-                        <div key={item.id} className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{item.description || item.category}</p>
-                            <p className="text-xs text-gray-500">{item.date}</p>
-                          </div>
-                          <span className="text-sm font-semibold text-[#16a34a]">+{formatCurrency(item.amount)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+              <div className="flex flex-col lg:flex-row gap-4 mb-4">
+                <div className="flex-1 min-w-0">
+                  <DashboardMonthlyBarChart items={barChartItems} incomeColor={DASH_GREEN} />
                 </div>
-
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-900">Recent Expenses</h3>
-                    <Link to="/resident/expenses" className="text-xs font-medium text-red-600 hover:text-red-700 flex items-center gap-1">
-                      View all <ArrowRight size={12} />
-                    </Link>
+                <div className="w-full lg:w-[min(100%,280px)] shrink-0">
+                  <p className="text-xs font-semibold text-gray-800 mb-2">Quick links</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {RESIDENT_QUICK_LINKS.map(({ to, label, icon: Icon }) => (
+                      <Link
+                        key={to}
+                        to={to}
+                        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-xs font-medium text-gray-800 shadow-sm transition-colors hover:bg-gray-50 hover:border-gray-300"
+                      >
+                        <Icon size={16} className="shrink-0" style={{ color: DASH_GREEN }} />
+                        <span className="truncate">{label}</span>
+                      </Link>
+                    ))}
                   </div>
-                  {recentExpenses.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-6">No expense records yet</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {recentExpenses.map(item => (
-                        <div key={item.id} className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{item.description || item.category}</p>
-                            <p className="text-xs text-gray-500">{item.date}</p>
-                          </div>
-                          <span className="text-sm font-semibold text-red-600">-{formatCurrency(item.amount)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
 
-              <div className="w-full bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-6">
+              <div className="w-full bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-4">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
                   <div>
                     <h3 className="text-sm font-semibold text-gray-900">Recent (30 days)</h3>
