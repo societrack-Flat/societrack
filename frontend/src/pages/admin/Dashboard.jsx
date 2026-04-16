@@ -10,8 +10,6 @@ import {
   Wallet,
   Receipt,
   ArrowRight,
-  LayoutDashboard,
-  BarChart3,
   FileText,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -23,6 +21,7 @@ import InputField from '../../components/InputField';
 import Button from '../../components/Button';
 import toast from 'react-hot-toast';
 import DashboardMonthlyBarChart from '../../components/DashboardMonthlyBarChart';
+import SupportChatPanel from '../../components/SupportChatPanel';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
 import { CALENDAR_MONTH_OPTIONS, getMaintenanceYearOptions } from '../../utils/maintenanceMonthOptions';
 import { pendingTotalForDashboardPeriod } from '../../utils/maintenancePending';
@@ -30,16 +29,6 @@ import { pendingTotalForDashboardPeriod } from '../../utils/maintenancePending';
 /** Primary green — use consistently on admin dashboard (matches mock “Add Receipt”) */
 const DASH_GREEN = '#22c55e';
 const DASH_GREEN_HOVER = '#16a34a';
-
-/** Quick nav beside bar chart (same destinations as main sidebar; Add Receipt/Expense stay in header). */
-const ADMIN_QUICK_LINKS = [
-  { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/admin/income', label: 'Income', icon: IndianRupee },
-  { to: '/admin/expenses', label: 'Expenses', icon: Receipt },
-  { to: '/admin/maintenance', label: 'Maintenance', icon: Clock },
-  { to: '/admin/announcements', label: 'Announcements', icon: Megaphone },
-  { to: '/admin/reports', label: 'Reports', icon: BarChart3 },
-];
 
 const DASHBOARD_STATS_MS = 20000;
 
@@ -816,24 +805,12 @@ const Dashboard = () => {
                 )}
               </div>
 
-              <div className="flex flex-col lg:flex-row gap-4 mb-4">
-                <div className="flex-1 min-w-0">
+              <div className="flex flex-col lg:flex-row gap-4 mb-4 items-stretch">
+                <div className="w-full lg:w-1/2 min-w-0">
                   <DashboardMonthlyBarChart items={barChartItems} incomeColor={DASH_GREEN} />
                 </div>
-                <div className="w-full lg:w-[min(100%,280px)] shrink-0">
-                  <p className="text-xs font-semibold text-gray-800 mb-2">Quick links</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {ADMIN_QUICK_LINKS.map(({ to, label, icon: Icon }) => (
-                      <Link
-                        key={to}
-                        to={to}
-                        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-xs font-medium text-gray-800 shadow-sm transition-colors hover:bg-gray-50 hover:border-gray-300"
-                      >
-                        <Icon size={16} className="shrink-0" style={{ color: DASH_GREEN }} />
-                        <span className="truncate">{label}</span>
-                      </Link>
-                    ))}
-                  </div>
+                <div className="w-full lg:w-1/2 min-w-0 flex flex-col">
+                  <SupportChatPanel variant="admin" apartmentId={activeApartmentId} />
                 </div>
               </div>
 

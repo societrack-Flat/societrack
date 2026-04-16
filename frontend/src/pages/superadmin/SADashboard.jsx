@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Building2, CreditCard, Users, IndianRupee } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, formatCurrency } from '../../lib/supabaseClient';
@@ -10,6 +10,7 @@ import {
 } from '../../lib/superadminMetrics';
 import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
+import SupportChatPanel from '../../components/SupportChatPanel';
 import toast from 'react-hot-toast';
 
 function DonutChart({ segments }) {
@@ -74,6 +75,7 @@ const SADashboard = () => {
   const [loading, setLoading] = useState(true);
   const [apartments, setApartments] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [chatApartmentId, setChatApartmentId] = useState('');
 
   const { userProfile } = useAuth();
   const year = new Date().getFullYear();
@@ -98,6 +100,21 @@ const SADashboard = () => {
       }
     };
     load();
+  }, []);
+
+  useEffect(() => {
+    if (apartments.length && !chatApartmentId) {
+      setChatApartmentId(apartments[0].id);
+    }
+  }, [apartments, chatApartmentId]);
+
+  const chatApartmentOptions = useMemo(
+    () => apartments.map((a) => ({ id: a.id, name: a.name || 'Unnamed' })),
+    [apartments]
+  );
+
+  const handleChatApartmentChange = useCallback((id) => {
+    setChatApartmentId(id);
   }, []);
 
   const metrics = useMemo(() => {
@@ -194,14 +211,24 @@ const SADashboard = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Plan distribution</h3>
-                  <DonutChart segments={donutSegments} />
+              <div className="flex flex-col lg:flex-row gap-6 items-stretch">
+                <div className="w-full lg:w-1/2 min-w-0 space-y-6">
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Plan distribution</h3>
+                    <DonutChart segments={donutSegments} />
+                  </div>
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Revenue ({year})</h3>
+                    <RevenueBars data={revenueBars} max={barMax} />
+                  </div>
                 </div>
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Revenue ({year})</h3>
-                  <RevenueBars data={revenueBars} max={barMax} />
+                <div className="w-full lg:w-1/2 min-w-0 flex flex-col">
+                  <SupportChatPanel
+                    variant="superadmin"
+                    apartmentId={chatApartmentId}
+                    onApartmentChange={handleChatApartmentChange}
+                    apartmentOptions={chatApartmentOptions}
+                  />
                 </div>
               </div>
             </>
