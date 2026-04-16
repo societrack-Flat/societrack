@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Headphones, Send, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { mergeMessagesById, markSupportThreadRead } from '../lib/supportChat';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
@@ -11,6 +12,17 @@ function labelForMessage(msg, currentUserId) {
   if (msg.sender_id === currentUserId) return 'You';
   if (msg.sender_role === 'super_admin') return 'Societrack Support';
   return 'Society admin';
+}
+
+function normalizeMessage(row) {
+  if (!row?.id) return null;
+  return {
+    id: row.id,
+    body: row.body,
+    created_at: row.created_at,
+    sender_id: row.sender_id,
+    sender_role: row.sender_role,
+  };
 }
 
 export default function SupportChatPanel({
@@ -29,6 +41,7 @@ export default function SupportChatPanel({
   const bottomRef = useRef(null);
   const scrollRef = useRef(null);
   const supportPopoverRef = useRef(null);
+  const broadcastRef = useRef(null);
 
   useEffect(() => {
     if (!showSupportInfo) return undefined;
@@ -45,19 +58,16 @@ export default function SupportChatPanel({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const loadMessages = useCallback(
-    async (tid) => {
-      const { data, error } = await supabase
-        .from('support_messages')
-        .select('id, body, created_at, sender_id, sender_role')
-        .eq('thread_id', tid)
-        .order('created_at', { ascending: true })
-        .limit(300);
-      if (error) throw error;
-      setMessages(data || []);
-    },
-    []
-  );
+  const loadMessages = useCallback(async (tid) => {
+    const { data, error } = await supabase
+      .from('support_messages')
+      .select('id, body, created_at, sender_id, sender_role')
+      .eq('thread_id', tid)
+      .order('created_at', { ascending: true })
+      .limit(300);
+    if (error) throw error;
+    setMessages((prev) => mergeMessagesById(prev, data || []));
+  }, []);
 
   const ensureThread = useCallback(async (aptId) => {
     if (!aptId) return null;
@@ -91,7 +101,14 @@ export default function SupportChatPanel({
         const tid = await ensureThread(apartmentId);
         if (cancelled || !tid) return;
         setThreadId(tid);
-        await loadMessages(tid);
+        const { data, error } = await supabase
+          .from('support_messages')
+          .select('id, body, created_at, sender_id, sender_role')
+          .eq('thread_id', tid)
+          .order('created_at', { ascending: true })
+          .limit(300);
+        if (error) throw error;
+        if (!cancelled) setMessages(data || []);
       } catch (e) {
         console.error(e);
         toast.error(e?.message || 'Could not load support chat');
@@ -102,12 +119,34 @@ export default function SupportChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [apartmentId, userProfile?.id, ensureThread, loadMessages]);
+  }, [apartmentId, userProfile?.id, ensureThread]);
 
+  /** Supabase Broadcast: instant delivery without relying on Postgres Realtime replication */
+  useEffect(() => {
+    if (!threadId) return undefined;
+    const ch = supabase.channel(`support-broadcast-${threadId}`, {
+      config: { broadcast: { self: true } },
+    });
+    ch.on('broadcast', { event: 'new_message' }, ({ payload }) => {
+      const row = normalizeMessage(payload?.record);
+      if (!row) return;
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === row.id)) return prev;
+        return [...prev, row];
+      });
+    }).subscribe();
+    broadcastRef.current = ch;
+    return () => {
+      broadcastRef.current = null;
+      supabase.removeChannel(ch);
+    };
+  }, [threadId]);
+
+  /** Postgres changes (when Realtime is enabled on the table) */
   useEffect(() => {
     if (!threadId) return undefined;
     const channel = supabase
-      .channel(`support-messages-${threadId}`)
+      .channel(`support-pg-${threadId}`)
       .on(
         'postgres_changes',
         {
@@ -117,20 +156,11 @@ export default function SupportChatPanel({
           filter: `thread_id=eq.${threadId}`,
         },
         (payload) => {
-          const row = payload.new;
-          if (!row?.id) return;
+          const row = normalizeMessage(payload.new);
+          if (!row) return;
           setMessages((prev) => {
             if (prev.some((m) => m.id === row.id)) return prev;
-            return [
-              ...prev,
-              {
-                id: row.id,
-                body: row.body,
-                created_at: row.created_at,
-                sender_id: row.sender_id,
-                sender_role: row.sender_role,
-              },
-            ];
+            return [...prev, row];
           });
         }
       )
@@ -140,9 +170,39 @@ export default function SupportChatPanel({
     };
   }, [threadId]);
 
+  /** Polling fallback so messages appear even if Realtime/Broadcast miss */
+  useEffect(() => {
+    if (!threadId) return undefined;
+    const id = setInterval(() => {
+      loadMessages(threadId).catch(() => {});
+    }, 4000);
+    return () => clearInterval(id);
+  }, [threadId, loadMessages]);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  /** Mark read when thread opens + while chat is open (clears bell for new messages) */
+  useEffect(() => {
+    if (!threadId || loading) return undefined;
+    markSupportThreadRead(threadId).catch(() => {});
+    const id = setInterval(() => {
+      markSupportThreadRead(threadId).catch(() => {});
+    }, 6000);
+    return () => clearInterval(id);
+  }, [threadId, loading]);
+
+  useEffect(() => {
+    if (!threadId || loading) return undefined;
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        markSupportThreadRead(threadId).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [threadId, loading]);
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -154,12 +214,25 @@ export default function SupportChatPanel({
     }
     setSending(true);
     try {
-      const { error } = await supabase.from('support_messages').insert({
-        thread_id: threadId,
-        sender_id: userProfile.id,
-        body: text,
-      });
+      const { data, error } = await supabase
+        .from('support_messages')
+        .insert({
+          thread_id: threadId,
+          sender_id: userProfile.id,
+          body: text,
+        })
+        .select('id, body, created_at, sender_id, sender_role')
+        .single();
       if (error) throw error;
+      if (data) {
+        setMessages((prev) => mergeMessagesById(prev, [data]));
+        broadcastRef.current?.send({
+          type: 'broadcast',
+          event: 'new_message',
+          payload: { record: data },
+        });
+        markSupportThreadRead(threadId).catch(() => {});
+      }
       setInput('');
     } catch (err) {
       console.error(err);

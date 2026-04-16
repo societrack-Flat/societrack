@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Menu, Bell, User, LogOut, Settings, ChevronDown, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useSupportUnread } from '../hooks/useSupportUnread';
 
 const TopBar = ({ onMenuClick, title, hideTitle = false }) => {
   const navigate = useNavigate();
@@ -15,6 +16,7 @@ const TopBar = ({ onMenuClick, title, hideTitle = false }) => {
     saManagedApartmentId,
     exitSaManageMode,
   } = useAuth();
+  const { unreadCount } = useSupportUnread();
   const isSuperAdmin = userProfile?.role === 'super_admin';
   const isSaManaging = isSuperAdmin && !!saManagedApartmentId;
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -110,8 +112,24 @@ const TopBar = ({ onMenuClick, title, hideTitle = false }) => {
         {/* Right */}
         <div className="flex items-center gap-2">
           {!isResident && (
-            <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-slate-100 rounded-lg relative transition-colors">
+            <button
+              type="button"
+              title="Support messages"
+              onClick={() => {
+                const to =
+                  userProfile?.role === 'super_admin' && !saManagedApartmentId
+                    ? '/superadmin/dashboard'
+                    : '/admin/dashboard';
+                navigate(to);
+              }}
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-slate-100 rounded-lg relative transition-colors"
+            >
               <Bell size={20} />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </button>
           )}
 
