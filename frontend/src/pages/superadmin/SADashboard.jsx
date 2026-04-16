@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Building2, CreditCard, Users, IndianRupee } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, formatCurrency } from '../../lib/supabaseClient';
@@ -76,6 +77,8 @@ const SADashboard = () => {
   const [apartments, setApartments] = useState([]);
   const [payments, setPayments] = useState([]);
   const [chatApartmentId, setChatApartmentId] = useState('');
+  const [chatApartmentOptions, setChatApartmentOptions] = useState([]);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const { userProfile } = useAuth();
   const year = new Date().getFullYear();
@@ -102,16 +105,59 @@ const SADashboard = () => {
     load();
   }, []);
 
+  /** Deep-link from bell: ?chatApartment=<uuid> */
+  useEffect(() => {
+    const cid = searchParams.get('chatApartment');
+    if (!cid || !apartments.length) return;
+    const found = apartments.some((a) => a.id === cid);
+    if (!found) return;
+    setChatApartmentId(cid);
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.delete('chatApartment');
+        return p;
+      },
+      { replace: true }
+    );
+  }, [apartments, searchParams, setSearchParams]);
+
   useEffect(() => {
     if (apartments.length && !chatApartmentId) {
       setChatApartmentId(apartments[0].id);
     }
   }, [apartments, chatApartmentId]);
 
-  const chatApartmentOptions = useMemo(
-    () => apartments.map((a) => ({ id: a.id, name: a.name || 'Unnamed' })),
-    [apartments]
-  );
+  /** Chat dropdown: show society admin name (not apartment name). */
+  useEffect(() => {
+    if (!apartments.length) {
+      setChatApartmentOptions([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data: admins, error } = await supabase
+        .from('users')
+        .select('name, email, apartment_id')
+        .eq('role', 'admin');
+      if (error || cancelled) return;
+      const firstByApt = new Map();
+      (admins || []).forEach((u) => {
+        if (!u.apartment_id) return;
+        if (!firstByApt.has(u.apartment_id)) firstByApt.set(u.apartment_id, u);
+      });
+      setChatApartmentOptions(
+        apartments.map((a) => {
+          const u = firstByApt.get(a.id);
+          const label = (u?.name && String(u.name).trim()) || u?.email || 'Admin';
+          return { id: a.id, name: label };
+        })
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apartments]);
 
   const handleChatApartmentChange = useCallback((id) => {
     setChatApartmentId(id);

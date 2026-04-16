@@ -11,6 +11,12 @@ export function mergeMessagesById(existing, incoming) {
   );
 }
 
+export async function fetchUnreadSendersForSuperadmin() {
+  const { data, error } = await supabase.rpc('support_unread_senders_for_superadmin');
+  if (error) throw error;
+  return data || [];
+}
+
 export async function markSupportThreadRead(threadId) {
   if (!threadId) return;
   const { error } = await supabase.rpc('mark_support_thread_read', { p_thread_id: threadId });

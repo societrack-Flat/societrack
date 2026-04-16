@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Menu, Bell, User, LogOut, Settings, ChevronDown, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSupportUnread } from '../hooks/useSupportUnread';
+import { supabase } from '../lib/supabaseClient';
 
 const TopBar = ({ onMenuClick, title, hideTitle = false }) => {
   const navigate = useNavigate();
@@ -21,7 +22,11 @@ const TopBar = ({ onMenuClick, title, hideTitle = false }) => {
   const isSaManaging = isSuperAdmin && !!saManagedApartmentId;
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showApartmentMenu, setShowApartmentMenu] = useState(false);
+  const [showSaBellMenu, setShowSaBellMenu] = useState(false);
+  const [saBellLoading, setSaBellLoading] = useState(false);
+  const [saBellItems, setSaBellItems] = useState([]);
   const apartmentMenuRef = useRef(null);
+  const saBellRef = useRef(null);
 
   const initial = isResident ? 'R' : (userProfile?.name?.charAt(0)?.toUpperCase() || 'U');
 
@@ -36,6 +41,50 @@ const TopBar = ({ onMenuClick, title, hideTitle = false }) => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!showSaBellMenu) return undefined;
+    const close = (e) => {
+      if (saBellRef.current && !saBellRef.current.contains(e.target)) {
+        setShowSaBellMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [showSaBellMenu]);
+
+  const handleBellClick = async () => {
+    if (isSuperAdmin && !saManagedApartmentId) {
+      if (showSaBellMenu) {
+        setShowSaBellMenu(false);
+        return;
+      }
+      setShowSaBellMenu(true);
+      setSaBellLoading(true);
+      try {
+        const { data, error } = await supabase.rpc('support_unread_senders_for_superadmin');
+        if (error) throw error;
+        setSaBellItems(Array.isArray(data) ? data : []);
+      } catch (e) {
+        console.warn(e);
+        setSaBellItems([]);
+      } finally {
+        setSaBellLoading(false);
+      }
+      return;
+    }
+    const to =
+      userProfile?.role === 'super_admin' && !saManagedApartmentId
+        ? '/superadmin/dashboard'
+        : '/admin/dashboard';
+    navigate(to);
+  };
+
+  const openChatForApartment = (apartmentId) => {
+    navigate(`/superadmin/dashboard?chatApartment=${apartmentId}`);
+    setShowSaBellMenu(false);
+    window.dispatchEvent(new CustomEvent('support-inbox-changed'));
+  };
 
   return (
     <header className="bg-white border-b border-gray-100 sticky top-0 z-40 shadow-sm">
@@ -112,25 +161,63 @@ const TopBar = ({ onMenuClick, title, hideTitle = false }) => {
         {/* Right */}
         <div className="flex items-center gap-2">
           {!isResident && (
-            <button
-              type="button"
-              title="Support messages"
-              onClick={() => {
-                const to =
-                  userProfile?.role === 'super_admin' && !saManagedApartmentId
-                    ? '/superadmin/dashboard'
-                    : '/admin/dashboard';
-                navigate(to);
-              }}
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-slate-100 rounded-lg relative transition-colors"
-            >
-              <Bell size={20} />
-              {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </span>
+            <div className="relative" ref={saBellRef}>
+              <button
+                type="button"
+                title={isSuperAdmin && !saManagedApartmentId ? 'Support messages' : 'Support messages'}
+                onClick={handleBellClick}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-slate-100 rounded-lg relative transition-colors"
+              >
+                <Bell size={20} />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {isSuperAdmin && !saManagedApartmentId && showSaBellMenu && (
+                <div className="absolute right-0 top-full mt-1 w-72 max-h-80 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg z-50 py-1">
+                  <div className="px-3 py-2 border-b border-gray-100">
+                    <p className="text-xs font-semibold text-gray-900">Messages from admins</p>
+                    <p className="text-[10px] text-gray-500">Tap a name to open that chat</p>
+                  </div>
+                  {saBellLoading ? (
+                    <p className="px-3 py-4 text-sm text-gray-500 text-center">Loading…</p>
+                  ) : saBellItems.length === 0 ? (
+                    <div className="px-3 py-2">
+                      <p className="text-sm text-gray-600">No unread admin messages</p>
+                      <button
+                        type="button"
+                        className="mt-2 text-xs font-medium text-blue-600 hover:underline"
+                        onClick={() => {
+                          navigate('/superadmin/dashboard');
+                          setShowSaBellMenu(false);
+                        }}
+                      >
+                        Open support chat
+                      </button>
+                    </div>
+                  ) : (
+                    saBellItems.map((row) => (
+                      <button
+                        key={row.apartment_id}
+                        type="button"
+                        onClick={() => openChatForApartment(row.apartment_id)}
+                        className="w-full text-left px-3 py-2.5 text-sm hover:bg-slate-50 flex items-start justify-between gap-2 border-b border-gray-50 last:border-0"
+                      >
+                        <span className="font-medium text-gray-900 truncate min-w-0">
+                          {row.admin_name || 'Admin'}
+                        </span>
+                        <span className="shrink-0 text-xs font-semibold text-gray-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                          {Number(row.unread_count) > 99 ? '99+' : row.unread_count}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
               )}
-            </button>
+            </div>
           )}
 
           <div className="relative">

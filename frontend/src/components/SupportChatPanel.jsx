@@ -38,7 +38,6 @@ export default function SupportChatPanel({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showSupportInfo, setShowSupportInfo] = useState(false);
-  const bottomRef = useRef(null);
   const scrollRef = useRef(null);
   const supportPopoverRef = useRef(null);
   const broadcastRef = useRef(null);
@@ -54,9 +53,16 @@ export default function SupportChatPanel({
     return () => document.removeEventListener('mousedown', close);
   }, [showSupportInfo]);
 
-  const scrollToBottom = () => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  /** Scroll only inside the chat box — never use scrollIntoView (it scrolls the whole page). */
+  const scrollChatToBottom = useCallback((smooth) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (smooth) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    } else {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, []);
 
   const loadMessages = useCallback(async (tid) => {
     const { data, error } = await supabase
@@ -180,8 +186,11 @@ export default function SupportChatPanel({
   }, [threadId, loadMessages]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    const id = requestAnimationFrame(() => {
+      scrollChatToBottom(false);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [messages, scrollChatToBottom]);
 
   /** Mark read when thread opens + while chat is open (clears bell for new messages) */
   useEffect(() => {
@@ -286,7 +295,7 @@ export default function SupportChatPanel({
 
       {isSuper && Array.isArray(apartmentOptions) && apartmentOptions.length > 0 && typeof onApartmentChange === 'function' && (
         <div className="px-3 py-2 border-b border-gray-100">
-          <label className="text-[11px] text-gray-500 block mb-1">Apartment</label>
+          <label className="text-[11px] text-gray-500 block mb-1">Society admin</label>
           <select
             className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
             value={apartmentId || ''}
@@ -346,7 +355,6 @@ export default function SupportChatPanel({
             );
           })
         )}
-        <div ref={bottomRef} />
       </div>
 
       <form onSubmit={handleSend} className="p-2 border-t border-gray-100 flex gap-2">
