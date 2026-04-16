@@ -10,9 +10,12 @@ import {
   Wallet,
   Receipt,
   ArrowRight,
+  LayoutDashboard,
+  BarChart3,
+  FileText,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { supabase, formatCurrency, formatDate } from '../../lib/supabaseClient';
+import { supabase, formatCurrency, formatDate, getSignedUrl } from '../../lib/supabaseClient';
 import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
 import Modal from '../../components/Modal';
@@ -20,13 +23,22 @@ import InputField from '../../components/InputField';
 import Button from '../../components/Button';
 import toast from 'react-hot-toast';
 import DashboardMonthlyBarChart from '../../components/DashboardMonthlyBarChart';
-import ExpenseDonutChart from '../../components/ExpenseDonutChart';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
 import { getMaintenanceMonthOptions } from '../../utils/maintenanceMonthOptions';
 
 /** Primary green — use consistently on admin dashboard (matches mock “Add Receipt”) */
 const DASH_GREEN = '#22c55e';
 const DASH_GREEN_HOVER = '#16a34a';
+
+/** Quick nav beside bar chart (same destinations as main sidebar; Add Receipt/Expense stay in header). */
+const ADMIN_QUICK_LINKS = [
+  { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/admin/income', label: 'Income', icon: IndianRupee },
+  { to: '/admin/expenses', label: 'Expenses', icon: Receipt },
+  { to: '/admin/maintenance', label: 'Maintenance', icon: Clock },
+  { to: '/admin/announcements', label: 'Announcements', icon: Megaphone },
+  { to: '/admin/reports', label: 'Reports', icon: BarChart3 },
+];
 
 const DASHBOARD_STATS_MS = 20000;
 
@@ -140,7 +152,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [chartItems, setChartItems] = useState([]);
   const [announcementPreview, setAnnouncementPreview] = useState([]);
-  const [expenseByCategory, setExpenseByCategory] = useState([]);
+  const [recentTransactions, setRecentTransactions] = useState([]);
   const [timeRange, setTimeRange] = useState('all'); // all | month | custom
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -238,7 +250,7 @@ const Dashboard = () => {
       const { from, to } = getRangeBounds(timeRange, customFrom, customTo);
 
       let periodIncomeQ = supabase.from('income').select('amount').eq('apartment_id', activeApartmentId);
-      let periodExpenseQ = supabase.from('expenses').select('amount, category').eq('apartment_id', activeApartmentId);
+      let periodExpenseQ = supabase.from('expenses').select('amount').eq('apartment_id', activeApartmentId);
       if (from) {
         periodIncomeQ = periodIncomeQ.gte('date', from);
         periodExpenseQ = periodExpenseQ.gte('date', from);
@@ -298,16 +310,6 @@ const Dashboard = () => {
       const periodIncome = periodIncomeRows?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const periodExpense = periodExpenseRows?.reduce((s, i) => s + Number(i.amount), 0) || 0;
 
-      const catMap = {};
-      (periodExpenseRows || []).forEach((row) => {
-        const c = String(row.category || 'Uncategorized').trim() || 'Uncategorized';
-        catMap[c] = (catMap[c] || 0) + Number(row.amount || 0);
-      });
-      setExpenseByCategory(
-        Object.entries(catMap)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 8)
-      );
       const allIncomeSum = totalIncomeData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const allExpenseSum = totalExpensesData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const openingBal = Number(aptOpeningRow?.opening_balance ?? 0);
@@ -402,6 +404,52 @@ const Dashboard = () => {
       const items = Array.from(buckets.values()).sort((a, b) => a.month.localeCompare(b.month));
       const last12 = items.slice(-12);
       setChartItems(last12);
+
+      const since = new Date();
+      since.setDate(since.getDate() - 30);
+      const from30 = since.toISOString().split('T')[0];
+
+      const [{ data: inc30 }, { data: exp30 }] = await Promise.all([
+        supabase
+          .from('income')
+          .select('id,date,amount,category,description,payment_mode,attachment_url')
+          .eq('apartment_id', activeApartmentId)
+          .gte('date', from30),
+        supabase
+          .from('expenses')
+          .select('id,date,amount,category,description,payment_mode,attachment_url')
+          .eq('apartment_id', activeApartmentId)
+          .gte('date', from30),
+      ]);
+
+      const tx = [
+        ...(inc30 || []).map((r) => ({
+          kind: 'income',
+          id: r.id,
+          type: 'Income',
+          title: r.description || r.category || 'Income',
+          amount: Number(r.amount || 0),
+          date: r.date,
+          paymentMode: r.payment_mode || '-',
+          attachmentUrl: r.attachment_url || null,
+          sortKey: `${r.date || ''}-1-${r.id}`,
+        })),
+        ...(exp30 || []).map((r) => ({
+          kind: 'expense',
+          id: r.id,
+          type: 'Expense',
+          title: r.description || r.category || 'Expense',
+          amount: Number(r.amount || 0),
+          date: r.date,
+          paymentMode: r.payment_mode || '-',
+          attachmentUrl: r.attachment_url || null,
+          sortKey: `${r.date || ''}-0-${r.id}`,
+        })),
+      ]
+        .sort((a, b) => (b.sortKey || '').localeCompare(a.sortKey || ''))
+        .slice(0, 25);
+
+      setRecentTransactions(tx);
     } catch (e) {
       console.error('Failed to load chart/transactions', e);
     }
@@ -418,6 +466,17 @@ const Dashboard = () => {
     () => padChartItems(chartItems || [], timeRange, customFrom, customTo),
     [chartItems, timeRange, customFrom, customTo]
   );
+
+  const handleViewBill = async (attachmentUrl) => {
+    if (!attachmentUrl) return;
+    try {
+      const url = await getSignedUrl(attachmentUrl);
+      if (url) window.open(url, '_blank');
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not open bill');
+    }
+  };
 
   const submitReceipt = async (e) => {
     e.preventDefault();
@@ -690,24 +749,97 @@ const Dashboard = () => {
                 )}
               </div>
 
-              {/* Charts row */}
-              <div className="grid lg:grid-cols-2 gap-4 mb-8">
-                <DashboardMonthlyBarChart items={barChartItems} incomeColor={DASH_GREEN} />
-                <ExpenseDonutChart entries={expenseByCategory} />
+              <div className="flex flex-col lg:flex-row gap-4 mb-4">
+                <div className="flex-1 min-w-0">
+                  <DashboardMonthlyBarChart items={barChartItems} incomeColor={DASH_GREEN} />
+                </div>
+                <div className="w-full lg:w-[min(100%,280px)] shrink-0">
+                  <p className="text-xs font-semibold text-gray-800 mb-2">Quick links</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {ADMIN_QUICK_LINKS.map(({ to, label, icon: Icon }) => (
+                      <Link
+                        key={to}
+                        to={to}
+                        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-xs font-medium text-gray-800 shadow-sm transition-colors hover:bg-gray-50 hover:border-gray-300"
+                      >
+                        <Icon size={16} className="shrink-0" style={{ color: DASH_GREEN }} />
+                        <span className="truncate">{label}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
               </div>
 
-              <div className="flex flex-wrap gap-3 text-sm">
-                <Link to="/admin/income" className="font-medium hover:underline" style={{ color: DASH_GREEN }}>
-                  View all income records <ArrowRight className="inline" size={14} />
-                </Link>
-                <span className="text-gray-300">|</span>
-                <Link to="/admin/expenses" className="text-gray-600 font-medium hover:text-gray-900">
-                  View all expenses
-                </Link>
-                <span className="text-gray-300">|</span>
-                <Link to="/admin/reports" className="text-gray-600 font-medium hover:text-gray-900">
-                  Reports
-                </Link>
+              <div className="w-full bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-6">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Recent (30 days)</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">Includes income and expenses from the last 30 days.</p>
+                  </div>
+                  <Link to="/admin/reports" className="text-xs font-medium flex items-center gap-1 shrink-0 hover:underline" style={{ color: DASH_GREEN }}>
+                    Reports <ArrowRight size={12} />
+                  </Link>
+                </div>
+
+                {recentTransactions.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-12">No transactions in the last 30 days</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[640px]">
+                      <thead className="text-xs text-gray-500 border-b border-gray-100">
+                        <tr>
+                          <th className="text-left py-3 pr-4 font-medium">Type</th>
+                          <th className="text-left py-3 pr-4 font-medium">Title</th>
+                          <th className="text-right py-3 px-4 font-medium w-28">Amount</th>
+                          <th className="text-left py-3 px-4 font-medium w-32">Date</th>
+                          <th className="text-right py-3 pl-4 font-medium w-24">Bill</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {recentTransactions.map((t) => (
+                          <tr key={t.sortKey} className="text-sm">
+                            <td className="py-3 pr-4">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                  t.type === 'Income' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                }`}
+                              >
+                                {t.type}
+                              </span>
+                            </td>
+                            <td className="py-3 pr-4 text-gray-900 max-w-md truncate" title={t.title}>
+                              {t.title}
+                            </td>
+                            <td
+                              className={`py-3 px-4 text-right font-semibold whitespace-nowrap ${
+                                t.type === 'Income' ? 'text-[#16a34a]' : 'text-red-600'
+                              }`}
+                            >
+                              {t.type === 'Income' ? '+' : '-'}
+                              {formatCurrency(t.amount)}
+                            </td>
+                            <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{t.date ? formatDate(t.date) : '-'}</td>
+                            <td className="py-3 pl-4 text-right">
+                              {t.attachmentUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleViewBill(t.attachmentUrl)}
+                                  className="text-xs font-medium inline-flex items-center gap-1 hover:underline"
+                                  style={{ color: DASH_GREEN }}
+                                >
+                                  <FileText size={14} />
+                                  View
+                                </button>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {/* Add Receipt modal */}
