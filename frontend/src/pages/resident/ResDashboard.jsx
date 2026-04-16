@@ -9,9 +9,6 @@ import {
   FileText,
   Megaphone,
   Wallet,
-  LayoutDashboard,
-  Receipt,
-  BarChart3,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, formatCurrency, getSignedUrl, formatDate } from '../../lib/supabaseClient';
@@ -22,16 +19,6 @@ import DashboardMonthlyBarChart from '../../components/DashboardMonthlyBarChart'
 
 /** Match admin dashboard accent */
 const DASH_GREEN = '#22c55e';
-
-/** Resident main nav — quick access (same destinations as sidebar; no add-income/add-expense). */
-const RESIDENT_QUICK_LINKS = [
-  { to: '/resident/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/resident/income', label: 'Income', icon: IndianRupee },
-  { to: '/resident/expenses', label: 'Expenses', icon: Receipt },
-  { to: '/resident/maintenance', label: 'Maintenance', icon: Clock },
-  { to: '/resident/announcements', label: 'Announcements', icon: Megaphone },
-  { to: '/resident/reports', label: 'Reports', icon: BarChart3 },
-];
 
 const DASHBOARD_STATS_MS = 20000;
 
@@ -466,7 +453,7 @@ const ResDashboard = () => {
                   </div>
                   <div>
                     <h1 className="text-xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
-                    <p className="text-sm text-gray-500 mt-0.5">Financial overview (read-only)</p>
+                    <p className="text-sm text-gray-500 mt-0.5">Financial Overview</p>
                   </div>
                 </div>
               </div>
@@ -574,28 +561,11 @@ const ResDashboard = () => {
                 )}
               </div>
 
-              <div className="flex flex-col lg:flex-row gap-4 mb-4">
-                <div className="flex-1 min-w-0">
-                  <DashboardMonthlyBarChart items={barChartItems} incomeColor={DASH_GREEN} />
-                </div>
-                <div className="w-full lg:w-[min(100%,280px)] shrink-0">
-                  <p className="text-xs font-semibold text-gray-800 mb-2">Quick links</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {RESIDENT_QUICK_LINKS.map(({ to, label, icon: Icon }) => (
-                      <Link
-                        key={to}
-                        to={to}
-                        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-xs font-medium text-gray-800 shadow-sm transition-colors hover:bg-gray-50 hover:border-gray-300"
-                      >
-                        <Icon size={16} className="shrink-0" style={{ color: DASH_GREEN }} />
-                        <span className="truncate">{label}</span>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
+              <div className="mb-6">
+                <DashboardMonthlyBarChart items={barChartItems} incomeColor={DASH_GREEN} />
               </div>
 
-              <div className="w-full bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-4">
+              <div className="w-full bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-6">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
                   <div>
                     <h3 className="text-sm font-semibold text-gray-900">Recent (30 days)</h3>
