@@ -1,12 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { IndianRupee, TrendingUp, TrendingDown, Clock, BarChart3, ArrowRight, Calendar, FileText, Plus, Megaphone } from 'lucide-react';
+import {
+  IndianRupee,
+  TrendingDown,
+  Clock,
+  ArrowRight,
+  Calendar,
+  FileText,
+  Megaphone,
+  Wallet,
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, formatCurrency, getSignedUrl, formatDate } from '../../lib/supabaseClient';
 import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
 import toast from 'react-hot-toast';
-import MonthlyIncomeExpenseChart from '../../components/MonthlyIncomeExpenseChart';
+import DashboardMonthlyBarChart from '../../components/DashboardMonthlyBarChart';
+import ExpenseDonutChart from '../../components/ExpenseDonutChart';
+
+/** Match admin dashboard accent */
+const DASH_GREEN = '#22c55e';
 
 const DASHBOARD_STATS_MS = 20000;
 
@@ -40,22 +53,83 @@ function getRangeBounds(timeRange, customFrom, customTo) {
   return { from, to };
 }
 
-const StatCard = ({ icon: Icon, label, value, subValue, gradient, iconBg, iconColor }) => (
-  <div className={`rounded-2xl p-6 shadow-sm min-h-[140px] flex flex-col ${gradient}`}>
-    <div className="flex items-center justify-between mb-4 shrink-0">
-      <div className={`p-2.5 rounded-xl ${iconBg}`}>
-        <Icon className={iconColor} size={22} />
-      </div>
-    </div>
-    <p className="text-sm font-medium text-gray-500">{label}</p>
-    <p className="text-2xl font-bold text-gray-900 mt-1 break-all">{value}</p>
-    {subValue && (
-      <p className="text-xs text-gray-500 mt-1 leading-snug line-clamp-2 break-words" title={typeof subValue === 'string' ? subValue : ''}>
-        {subValue}
-      </p>
-    )}
-  </div>
-);
+/** Pad months so the bar chart matches admin dashboard behavior */
+function padChartItems(items, timeRange, customFrom, customTo) {
+  const map = new Map((items || []).map((it) => [it.month, it]));
+  if (timeRange === 'month') {
+    const list = Array.from(map.values()).sort((a, b) => a.month.localeCompare(b.month));
+    if (list.length) return list;
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return [{ month: ym, income: 0, expense: 0 }];
+  }
+  if (timeRange === 'custom' && customFrom && customTo) {
+    const out = [];
+    const start = new Date(`${customFrom.slice(0, 7)}-01`);
+    const end = new Date(`${customTo.slice(0, 7)}-01`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return Array.from(map.values()).sort((a, b) => a.month.localeCompare(b.month));
+    }
+    for (let d = new Date(start); d <= end; d.setMonth(d.getMonth() + 1)) {
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const ex = map.get(ym);
+      out.push(ex || { month: ym, income: 0, expense: 0 });
+    }
+    return out;
+  }
+  const out = [];
+  const now = new Date();
+  for (let k = 11; k >= 0; k--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - k, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    out.push(map.get(ym) || { month: ym, income: 0, expense: 0 });
+  }
+  return out;
+}
+
+function sumMaintenanceCollectedForPeriod(rows, timeRange, customFrom, customTo) {
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  const { from, to } = getRangeBounds(timeRange, customFrom, customTo);
+  return (rows || []).reduce((sum, m) => {
+    let ok = false;
+    if (timeRange === 'all') ok = true;
+    else if (timeRange === 'month') ok = m.month === currentMonth && m.year === currentYear;
+    else if (timeRange === 'custom' && from && to) {
+      if (m.paid_date) {
+        const pd = String(m.paid_date).split('T')[0];
+        ok = pd >= from && pd < to;
+      } else {
+        const mid = `${m.year}-${String(m.month).padStart(2, '0')}-15`;
+        ok = mid >= from && mid < to;
+      }
+    }
+    return ok ? sum + Number(m.paid_amount || 0) : sum;
+  }, 0);
+}
+
+/** Pending $ on dashboard must match Maintenance screen: sum `maintenance.amount` where status is pending (not flat master fields). */
+function sumPendingMaintenanceForPeriod(rows, timeRange, customFrom, customTo) {
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  return (rows || []).reduce((sum, m) => {
+    if (m.status !== 'pending') return sum;
+    const amt = Number(m.amount ?? 0);
+    if (timeRange === 'all') return sum + amt;
+    if (timeRange === 'month') {
+      return m.month === currentMonth && m.year === currentYear ? sum + amt : sum;
+    }
+    if (timeRange === 'custom' && customFrom && customTo) {
+      const rowYm = `${m.year}-${String(m.month).padStart(2, '0')}`;
+      const fromYm = customFrom.slice(0, 7);
+      const toYm = customTo.slice(0, 7);
+      return rowYm >= fromYm && rowYm <= toYm ? sum + amt : sum;
+    }
+    return sum;
+  }, 0);
+}
 
 const ResDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -65,6 +139,7 @@ const ResDashboard = () => {
   const [recentExpenses, setRecentExpenses] = useState([]);
   const [recentTransactions, setRecentTransactions] = useState([]);
   const [chartItems, setChartItems] = useState([]);
+  const [expenseByCategory, setExpenseByCategory] = useState([]);
   const [announcementPreview, setAnnouncementPreview] = useState([]);
   const [timeRange, setTimeRange] = useState('all'); // all | month | custom
   const [customFrom, setCustomFrom] = useState('');
@@ -84,17 +159,6 @@ const ResDashboard = () => {
   });
 
   const { apartment, userProfile, checkSubscription, profileLoaded, residentApartmentId } = useAuth();
-
-  const residentFirstName = () => {
-    const n = userProfile?.name?.split(' ')[0];
-    if (n) return n;
-    try {
-      const s = JSON.parse(localStorage.getItem('resident_session') || '{}');
-      return s.username || 'Resident';
-    } catch {
-      return 'Resident';
-    }
-  };
 
   useEffect(() => {
     if (selectedApartmentId) {
@@ -118,14 +182,11 @@ const ResDashboard = () => {
   const fetchDashboardStats = async () => {
     try {
       setLoading(true);
-      const now = new Date();
-      const currentMonth = now.getMonth() + 1;
-      const currentYear = now.getFullYear();
 
       const { from, to } = getRangeBounds(timeRange, customFrom, customTo);
 
       let periodIncomeQ = supabase.from('income').select('amount').eq('apartment_id', selectedApartmentId);
-      let periodExpenseQ = supabase.from('expenses').select('amount').eq('apartment_id', selectedApartmentId);
+      let periodExpenseQ = supabase.from('expenses').select('amount, category').eq('apartment_id', selectedApartmentId);
       if (from) {
         periodIncomeQ = periodIncomeQ.gte('date', from);
         periodExpenseQ = periodExpenseQ.gte('date', from);
@@ -141,8 +202,7 @@ const ResDashboard = () => {
         { data: periodExpenseRows },
         { data: totalIncomeData },
         { data: totalExpensesData },
-        { data: maintenancePaidData },
-        { data: maintenancePendingData },
+        { data: maintenanceRows },
         { data: recentIncomeData },
         { data: recentExpenseData },
         { data: aptOpeningRow },
@@ -156,8 +216,10 @@ const ResDashboard = () => {
           periodExpenseQ,
           supabase.from('income').select('amount').eq('apartment_id', selectedApartmentId),
           supabase.from('expenses').select('amount').eq('apartment_id', selectedApartmentId),
-          supabase.from('maintenance').select('paid_amount').eq('apartment_id', selectedApartmentId).eq('month', currentMonth).eq('year', currentYear).eq('status', 'paid'),
-          supabase.from('maintenance').select('amount').eq('apartment_id', selectedApartmentId).eq('month', currentMonth).eq('year', currentYear).eq('status', 'pending'),
+          supabase
+            .from('maintenance')
+            .select('amount, paid_amount, paid_date, month, year, status')
+            .eq('apartment_id', selectedApartmentId),
           supabase.from('income').select('*').eq('apartment_id', selectedApartmentId).order('date', { ascending: false }).limit(4),
           supabase.from('expenses').select('*').eq('apartment_id', selectedApartmentId).order('date', { ascending: false }).limit(4),
           supabase.from('apartments').select('opening_balance').eq('id', selectedApartmentId).maybeSingle(),
@@ -176,16 +238,29 @@ const ResDashboard = () => {
 
       const flatsList = flatRows || [];
       const totalFlats = flatsList.length;
-      const totalFlatPendingMaintenance = flatsList.reduce((s, row) => {
-        const m = Number(row?.monthly_maintenance ?? 0);
-        const p = Number(row?.pending_maintenance ?? 0);
-        return s + m + p;
-      }, 0);
+      const maintenancePaidRows = (maintenanceRows || []).filter((m) => m.status === 'paid');
+      const totalFlatPendingMaintenance = sumPendingMaintenanceForPeriod(
+        maintenanceRows || [],
+        timeRange,
+        customFrom,
+        customTo
+      );
       const otherMaintenanceOnFlats = flatsList.reduce((s, row) => s + Number(row?.other_maintenance ?? 0), 0) || 0;
       const openingBal = Number(aptOpeningRow?.opening_balance ?? 0);
 
       const periodIncome = periodIncomeRows?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const periodExpense = periodExpenseRows?.reduce((s, i) => s + Number(i.amount), 0) || 0;
+
+      const catMap = {};
+      (periodExpenseRows || []).forEach((row) => {
+        const c = String(row.category || 'Uncategorized').trim() || 'Uncategorized';
+        catMap[c] = (catMap[c] || 0) + Number(row.amount || 0);
+      });
+      setExpenseByCategory(
+        Object.entries(catMap)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8)
+      );
       const allIncomeSum = totalIncomeData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const allExpenseSum = totalExpensesData?.reduce((s, i) => s + Number(i.amount), 0) || 0;
       const periodNetIncomeExpense = periodIncome - periodExpense;
@@ -201,8 +276,13 @@ const ResDashboard = () => {
         totalExpenses: allExpenseSum,
         currentBalance: timeRange === 'all' ? openingBal + periodNetIncomeExpense : periodNetIncomeExpense,
         openingBalance: openingBal,
-        maintenanceCollected: maintenancePaidData?.reduce((s, i) => s + Number(i.paid_amount), 0) || 0,
-        maintenancePending: maintenancePendingData?.reduce((s, i) => s + Number(i.amount), 0) || 0,
+        maintenanceCollected: sumMaintenanceCollectedForPeriod(
+          maintenancePaidRows,
+          timeRange,
+          customFrom,
+          customTo
+        ),
+        maintenancePending: 0,
         totalFlats,
         totalFlatPendingMaintenance,
         otherMaintenanceOnFlats,
@@ -332,21 +412,15 @@ const ResDashboard = () => {
 
   const subscription = userProfile ? checkSubscription() : { valid: true, status: null, daysLeft: null };
 
-  const incomeStatLabel =
-    timeRange === 'all' ? 'Total Income' : timeRange === 'month' ? 'Income (this month)' : 'Income (period)';
-  const expenseStatLabel =
-    timeRange === 'all' ? 'Total Expenses' : timeRange === 'month' ? 'Expenses (this month)' : 'Expenses (period)';
-  const netStatLabel =
-    timeRange === 'all'
-      ? 'Net (all time, incl. opening)'
-      : timeRange === 'month'
-        ? 'Net (this month)'
-        : 'Net (period)';
-
   const periodNet =
     timeRange === 'all'
       ? stats.openingBalance + stats.totalIncomeThisMonth - stats.totalExpensesThisMonth
       : stats.totalIncomeThisMonth - stats.totalExpensesThisMonth;
+
+  const barChartItems = useMemo(
+    () => padChartItems(chartItems || [], timeRange, customFrom, customTo),
+    [chartItems, timeRange, customFrom, customTo]
+  );
 
   const handleViewBill = async (attachmentUrl) => {
     if (!attachmentUrl) return;
@@ -364,13 +438,13 @@ const ResDashboard = () => {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} role="resident" />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar onMenuClick={() => setSidebarOpen(true)} title="Dashboard" />
+        <TopBar onMenuClick={() => setSidebarOpen(true)} title="" hideTitle />
         
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
 
           {loading ? (
             <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
-              <div className="w-10 h-10 border-4 border-lime-400 border-t-transparent rounded-full animate-spin" />
+              <div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin" />
               <p className="text-sm text-gray-500">Loading dashboard…</p>
             </div>
           ) : (
@@ -392,119 +466,146 @@ const ResDashboard = () => {
                 </div>
               )}
 
-              <div className="bg-gradient-to-r from-slate-700 via-slate-600 to-slate-700 rounded-xl p-4 mb-4 text-white relative overflow-hidden border border-slate-600/50">
-                <div className="absolute top-0 right-0 w-48 h-48 bg-lime-400/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-                <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <div className="w-1.5 h-1.5 bg-lime-300 rounded-full animate-pulse" />
-                    <span className="text-lime-200/90 text-xs font-medium">{apartment?.name}</span>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-11 h-11 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-sm">
+                    {(apartment?.name || 'S').trim().charAt(0).toUpperCase()}
                   </div>
-                  <h1 className="text-lg sm:text-xl font-bold">Welcome back, {residentFirstName()}!</h1>
-                  <p className="text-slate-300 mt-0.5 text-xs">Society financial summary (read-only)</p>
-                </div>
-              </div>
-
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-medium text-gray-500">Period</span>
-                  <select
-                    value={timeRange}
-                    onChange={(e) => setTimeRange(e.target.value)}
-                    className="bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
-                  >
-                    <option value="all">All Time</option>
-                    <option value="month">This Month</option>
-                    <option value="custom">Custom</option>
-                  </select>
-                  {timeRange === 'custom' && (
-                    <>
-                      <div className="relative">
-                        <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                        <input
-                          type="date"
-                          value={customFrom}
-                          onChange={(e) => setCustomFrom(e.target.value)}
-                          className="bg-white border border-gray-200 rounded-lg pl-7 pr-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-lime-400"
-                        />
-                      </div>
-                      <div className="relative">
-                        <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                        <input
-                          type="date"
-                          value={customTo}
-                          onChange={(e) => setCustomTo(e.target.value)}
-                          className="bg-white border border-gray-200 rounded-lg pl-7 pr-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-lime-400"
-                        />
-                      </div>
-                    </>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Link
-                    to="/resident/income"
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold text-emerald-900 bg-emerald-100 border border-emerald-200/80"
-                  >
-                    <Plus size={16} />
-                    Income
-                  </Link>
-                  <Link
-                    to="/resident/expenses"
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold text-rose-800 bg-rose-50 border border-rose-200/90"
-                  >
-                    <Plus size={16} />
-                    Expenses
-                  </Link>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-                <StatCard icon={TrendingUp} label={incomeStatLabel} value={formatCurrency(stats.totalIncomeThisMonth)} gradient="bg-white border border-lime-200/80" iconBg="bg-lime-100" iconColor="text-lime-700" />
-                <StatCard icon={TrendingDown} label={expenseStatLabel} value={formatCurrency(stats.totalExpensesThisMonth)} gradient="bg-white border border-rose-200/80" iconBg="bg-rose-100" iconColor="text-rose-700" />
-                <StatCard icon={IndianRupee} label={netStatLabel} value={formatCurrency(periodNet)} subValue={periodNet >= 0 ? 'Surplus' : 'Deficit'} gradient={`bg-white border ${periodNet >= 0 ? 'border-sky-200' : 'border-amber-200'}`} iconBg={periodNet >= 0 ? 'bg-sky-100' : 'bg-amber-100'} iconColor={periodNet >= 0 ? 'text-sky-700' : 'text-amber-800'} />
-                <StatCard icon={Clock} label="Pending maintenance (flats)" value={formatCurrency(stats.totalFlatPendingMaintenance)} subValue={`${stats.totalFlats} flat(s) · Society-wide`} gradient="bg-white border border-violet-200/80" iconBg="bg-violet-100" iconColor="text-violet-700" />
-              </div>
-
-              <div className="grid lg:grid-cols-12 gap-4 mb-6">
-                <div className="lg:col-span-7 xl:col-span-8">
-                  <div className="flex items-center gap-2 mb-2">
-                    <BarChart3 className="text-lime-600" size={16} />
-                    <p className="text-xs font-semibold text-gray-800">Income vs expenses by month</p>
+                  <div>
+                    <h1 className="text-xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
+                    <p className="text-sm text-gray-500 mt-0.5">Financial overview (read-only)</p>
                   </div>
-                  <MonthlyIncomeExpenseChart items={chartItems} />
                 </div>
-                <div className="lg:col-span-5 xl:col-span-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Megaphone className="text-lime-600" size={16} />
-                      <p className="text-xs font-semibold text-gray-800">Announcements</p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 mb-5">
+                <span className="text-xs font-medium text-gray-500">Period</span>
+                <select
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(e.target.value)}
+                  className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0"
+                >
+                  <option value="all">All Time</option>
+                  <option value="month">This Month</option>
+                  <option value="custom">Custom</option>
+                </select>
+                {timeRange === 'custom' && (
+                  <>
+                    <div className="relative">
+                      <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                      <input
+                        type="date"
+                        value={customFrom}
+                        onChange={(e) => setCustomFrom(e.target.value)}
+                        className="bg-white border border-gray-200 rounded-lg pl-8 pr-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
                     </div>
-                    <Link to="/resident/announcements" className="text-xs font-medium text-lime-700 flex items-center gap-0.5">
-                      View <ArrowRight size={12} />
-                    </Link>
+                    <div className="relative">
+                      <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                      <input
+                        type="date"
+                        value={customTo}
+                        onChange={(e) => setCustomTo(e.target.value)}
+                        className="bg-white border border-gray-200 rounded-lg pl-8 pr-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2 rounded-lg bg-green-50">
+                      <IndianRupee className="text-[#16a34a]" size={20} strokeWidth={2} />
+                    </div>
                   </div>
-                  <div className="bg-white rounded-xl border border-gray-200/90 shadow-sm p-4 min-h-[160px]">
-                    {announcementPreview.length === 0 ? (
-                      <p className="text-xs text-gray-500 text-center py-6">No announcements</p>
-                    ) : (
-                      <ul className="space-y-2">
-                        {announcementPreview.map((a) => (
-                          <li key={a.id} className="border-b border-gray-100 last:border-0 pb-2 last:pb-0">
-                            <p className="text-sm font-medium text-gray-900 line-clamp-1">{a.title || 'Announcement'}</p>
-                            <p className="text-xs text-gray-500 line-clamp-2">{a.message}</p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                  <p className="text-xs font-medium text-gray-500">Total maintenance collected</p>
+                  <p className="text-lg font-bold text-gray-900 mt-1 tabular-nums">{formatCurrency(stats.maintenanceCollected)}</p>
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2 rounded-lg bg-red-50">
+                      <TrendingDown className="text-red-600" size={20} />
+                    </div>
                   </div>
+                  <p className="text-xs font-medium text-gray-500">Total Expenses</p>
+                  <p className="text-lg font-bold text-gray-900 mt-1 tabular-nums">{formatCurrency(stats.totalExpensesThisMonth)}</p>
+                </div>
+                <div className="rounded-xl border border-blue-600 bg-blue-600 p-4 shadow-sm text-white">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2 rounded-lg bg-white/20">
+                      <Wallet className="text-white" size={20} />
+                    </div>
+                  </div>
+                  <p className="text-xs font-medium text-blue-100">Current Balance</p>
+                  <p className="text-lg font-bold mt-1 tabular-nums">{formatCurrency(periodNet)}</p>
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2 rounded-lg bg-amber-50">
+                      <Clock className="text-amber-600" size={20} />
+                    </div>
+                  </div>
+                  <p className="text-xs font-medium text-gray-500">Pending maintenance</p>
+                  <p className="text-lg font-bold text-gray-900 mt-1 tabular-nums">{formatCurrency(stats.totalFlatPendingMaintenance)}</p>
                 </div>
               </div>
 
-              <div className="grid lg:grid-cols-2 gap-6 mb-6">
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-gray-900">Recent Income</h3>
-                    <Link to="/resident/income" className="text-sm text-lime-700 hover:text-lime-800 font-medium flex items-center gap-1">
-                      View all <ArrowRight size={14} />
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-6">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2">
+                    <Megaphone className="text-[#16a34a]" size={18} />
+                    <h2 className="text-sm font-semibold text-gray-900">Latest Announcement</h2>
+                  </div>
+                  <Link
+                    to="/resident/announcements"
+                    className="text-xs font-medium flex items-center gap-0.5 hover:underline"
+                    style={{ color: DASH_GREEN }}
+                  >
+                    View <ArrowRight size={12} />
+                  </Link>
+                </div>
+                {announcementPreview.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-6">No announcements available.</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {announcementPreview.slice(0, 1).map((a) => (
+                      <li key={a.id}>
+                        <p className="text-sm font-medium text-gray-900">{a.title || 'Announcement'}</p>
+                        <p className="text-xs text-gray-600 mt-1 line-clamp-3">{a.message}</p>
+                        <p className="text-[10px] text-gray-400 mt-2">{a.created_at ? formatDate(a.created_at) : ''}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4 mb-8">
+                <DashboardMonthlyBarChart items={barChartItems} incomeColor={DASH_GREEN} />
+                <ExpenseDonutChart entries={expenseByCategory} />
+              </div>
+
+              <div className="flex flex-wrap gap-3 text-sm mb-8">
+                <Link to="/resident/income" className="font-medium hover:underline" style={{ color: DASH_GREEN }}>
+                  View all income records <ArrowRight className="inline" size={14} />
+                </Link>
+                <span className="text-gray-300">|</span>
+                <Link to="/resident/expenses" className="text-gray-600 font-medium hover:text-gray-900">
+                  View all expenses
+                </Link>
+                <span className="text-gray-300">|</span>
+                <Link to="/resident/reports" className="text-gray-600 font-medium hover:text-gray-900">
+                  Reports
+                </Link>
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4 mb-6">
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-900">Recent Income</h3>
+                    <Link to="/resident/income" className="text-xs font-medium flex items-center gap-1 hover:underline" style={{ color: DASH_GREEN }}>
+                      View all <ArrowRight size={12} />
                     </Link>
                   </div>
                   {recentIncome.length === 0 ? (
@@ -517,18 +618,18 @@ const ResDashboard = () => {
                             <p className="text-sm font-medium text-gray-900">{item.description || item.category}</p>
                             <p className="text-xs text-gray-500">{item.date}</p>
                           </div>
-                          <span className="text-sm font-semibold text-lime-700">+{formatCurrency(item.amount)}</span>
+                          <span className="text-sm font-semibold text-[#16a34a]">+{formatCurrency(item.amount)}</span>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
 
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-gray-900">Recent Expenses</h3>
-                    <Link to="/resident/expenses" className="text-sm text-red-600 hover:text-red-700 font-medium flex items-center gap-1">
-                      View all <ArrowRight size={14} />
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-900">Recent Expenses</h3>
+                    <Link to="/resident/expenses" className="text-xs font-medium text-red-600 hover:text-red-700 flex items-center gap-1">
+                      View all <ArrowRight size={12} />
                     </Link>
                   </div>
                   {recentExpenses.length === 0 ? (
@@ -549,14 +650,14 @@ const ResDashboard = () => {
                 </div>
               </div>
 
-              <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+              <div className="w-full bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-6">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
                   <div>
-                    <h3 className="font-semibold text-gray-900 text-lg">Recent (30 days)</h3>
-                    <p className="text-sm text-gray-500 mt-1">Includes income and expenses from the last 30 days.</p>
+                    <h3 className="text-sm font-semibold text-gray-900">Recent (30 days)</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">Includes income and expenses from the last 30 days.</p>
                   </div>
-                  <Link to="/resident/reports" className="text-sm text-lime-700 hover:text-lime-800 font-medium flex items-center gap-1 shrink-0">
-                    Reports <ArrowRight size={14} />
+                  <Link to="/resident/reports" className="text-xs font-medium flex items-center gap-1 shrink-0 hover:underline" style={{ color: DASH_GREEN }}>
+                    Reports <ArrowRight size={12} />
                   </Link>
                 </div>
 
@@ -579,13 +680,13 @@ const ResDashboard = () => {
                           <tr key={t.sortKey} className="text-sm">
                             <td className="py-3 pr-4">
                               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                t.type === 'Income' ? 'bg-lime-100 text-lime-800' : 'bg-red-100 text-red-800'
+                                t.type === 'Income' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                               }`}>
                                 {t.type}
                               </span>
                             </td>
                             <td className="py-3 pr-4 text-gray-900 max-w-md truncate" title={t.title}>{t.title}</td>
-                            <td className={`py-3 px-4 text-right font-semibold whitespace-nowrap ${t.type === 'Income' ? 'text-lime-700' : 'text-red-600'}`}>
+                            <td className={`py-3 px-4 text-right font-semibold whitespace-nowrap ${t.type === 'Income' ? 'text-[#16a34a]' : 'text-red-600'}`}>
                               {t.type === 'Income' ? '+' : '-'}{formatCurrency(t.amount)}
                             </td>
                             <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{t.date ? formatDate(t.date) : '-'}</td>
@@ -594,7 +695,8 @@ const ResDashboard = () => {
                                 <button
                                   type="button"
                                   onClick={() => handleViewBill(t.attachmentUrl)}
-                                  className="text-lime-700 hover:text-lime-900 text-xs font-medium inline-flex items-center gap-1"
+                                  className="text-xs font-medium inline-flex items-center gap-1 hover:underline"
+                                  style={{ color: DASH_GREEN }}
                                 >
                                   <FileText size={14} />
                                   View

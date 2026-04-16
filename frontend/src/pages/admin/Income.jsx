@@ -11,6 +11,7 @@ import EmptyState from '../../components/EmptyState';
 import toast from 'react-hot-toast';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
+import { getMaintenanceMonthOptions } from '../../utils/maintenanceMonthOptions';
 
 const formatMaintMonthLabel = (val) => {
   if (!val || !/^\d{4}-\d{2}$/.test(String(val))) return '—';
@@ -65,6 +66,18 @@ const Income = () => {
 
   const { apartment, userProfile, profileLoaded } = useAuth();
   const activeApartmentId = useAdminActiveApartment();
+
+  const maintenanceMonthSelectOptions = useMemo(() => {
+    const base = getMaintenanceMonthOptions();
+    const v = formData.maintenance_month;
+    if (v && /^\d{4}-\d{2}$/.test(String(v)) && !base.some((o) => o.value === v)) {
+      const [y, mo] = String(v).split('-').map(Number);
+      const d = new Date(y, mo - 1, 1);
+      const label = d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
+      return [{ value: v, label }, ...base].sort((a, b) => a.value.localeCompare(b.value));
+    }
+    return base;
+  }, [formData.maintenance_month]);
 
   useEffect(() => {
     if (activeApartmentId) {
@@ -133,7 +146,16 @@ const Income = () => {
       setFormData({ ...formData, attachment: files[0] });
     } else if (name === 'flat_id') {
       const flat = flats.find((f) => f.id === value);
-      setFormData({ ...formData, flat_id: value });
+      const maint = flat?.monthly_maintenance;
+      const amountFromFlat =
+        maint != null && maint !== '' && !Number.isNaN(Number(maint))
+          ? String(Number(maint))
+          : undefined;
+      setFormData({
+        ...formData,
+        flat_id: value,
+        ...(amountFromFlat !== undefined ? { amount: amountFromFlat } : {}),
+      });
       if (flat) {
         setResidentPreview({
           name: flat.resident_name || flat.owner_name || '',
@@ -723,24 +745,17 @@ const Income = () => {
                 { value: 'Other', label: 'Other' },
               ]}
             />
-            <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-700" htmlFor="income-maintenance-month">
-                Maintenance month <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <input
-                id="income-maintenance-month"
-                type="text"
-                name="maintenance_month"
-                inputMode="numeric"
-                autoComplete="off"
-                placeholder="YYYY-MM"
-                pattern="[0-9]{4}-[0-9]{2}"
-                value={formData.maintenance_month}
-                onChange={handleChange}
-                className="w-full bg-gray-100 border-0 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:bg-white"
-              />
-              <p className="text-xs text-gray-500">Enter like 2026-04 — avoids the month-picker dots in some browsers.</p>
-            </div>
+            <InputField
+              label="Maintenance month"
+              type="select"
+              name="maintenance_month"
+              value={formData.maintenance_month}
+              onChange={handleChange}
+              options={[
+                { value: '', label: '— (optional)' },
+                ...maintenanceMonthSelectOptions,
+              ]}
+            />
           </div>
 
           <InputField

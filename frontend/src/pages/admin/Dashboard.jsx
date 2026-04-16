@@ -1,13 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { IndianRupee, TrendingUp, TrendingDown, Clock, BarChart3, Megaphone, ArrowRight, Calendar, FileText, Plus } from 'lucide-react';
+import {
+  IndianRupee,
+  TrendingDown,
+  Clock,
+  Megaphone,
+  Calendar,
+  Plus,
+  Wallet,
+  Receipt,
+  ArrowRight,
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { supabase, formatCurrency, getSignedUrl, formatDate } from '../../lib/supabaseClient';
+import { supabase, formatCurrency, formatDate } from '../../lib/supabaseClient';
 import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
+import Modal from '../../components/Modal';
+import InputField from '../../components/InputField';
+import Button from '../../components/Button';
 import toast from 'react-hot-toast';
-import MonthlyIncomeExpenseChart from '../../components/MonthlyIncomeExpenseChart';
+import DashboardMonthlyBarChart from '../../components/DashboardMonthlyBarChart';
+import ExpenseDonutChart from '../../components/ExpenseDonutChart';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
+import { getMaintenanceMonthOptions } from '../../utils/maintenanceMonthOptions';
+
+/** Primary green — use consistently on admin dashboard (matches mock “Add Receipt”) */
+const DASH_GREEN = '#22c55e';
+const DASH_GREEN_HOVER = '#16a34a';
 
 const DASHBOARD_STATS_MS = 20000;
 
@@ -20,7 +39,7 @@ function withTimeout(promise, ms) {
   ]);
 }
 
-/** Chart + stat cards: same range semantics as MonthlyIncomeExpenseChart */
+/** Chart + stat cards: same range semantics as monthly chart data */
 function getRangeBounds(timeRange, customFrom, customTo) {
   const now = new Date();
   let from = null;
@@ -41,35 +60,127 @@ function getRangeBounds(timeRange, customFrom, customTo) {
   return { from, to };
 }
 
-const StatCard = ({ icon: Icon, label, value, subValue, className = '', iconBg, iconColor }) => (
-  <div className={`rounded-lg p-3 shadow-sm border border-gray-200/90 bg-white min-h-[92px] flex flex-col ${className}`}>
-    <div className="flex items-center justify-between mb-1.5 shrink-0">
-      <div className={`p-1.5 rounded-md ${iconBg}`}>
-        <Icon className={iconColor} size={16} />
-      </div>
-    </div>
-    <p className="text-[11px] font-medium text-gray-500">{label}</p>
-    <p className="text-base sm:text-lg font-bold text-gray-900 mt-0.5 break-all leading-tight">{value}</p>
-    {subValue && (
-      <p className="text-[11px] text-gray-500 mt-1 leading-snug line-clamp-2 break-words" title={typeof subValue === 'string' ? subValue : ''}>
-        {subValue}
-      </p>
-    )}
-  </div>
-);
+/** Pad months so the bar chart shows every period (zeros where missing). */
+function padChartItems(items, timeRange, customFrom, customTo) {
+  const map = new Map((items || []).map((it) => [it.month, it]));
+  if (timeRange === 'month') {
+    const list = Array.from(map.values()).sort((a, b) => a.month.localeCompare(b.month));
+    if (list.length) return list;
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return [{ month: ym, income: 0, expense: 0 }];
+  }
+  if (timeRange === 'custom' && customFrom && customTo) {
+    const out = [];
+    const start = new Date(`${customFrom.slice(0, 7)}-01`);
+    const end = new Date(`${customTo.slice(0, 7)}-01`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return Array.from(map.values()).sort((a, b) => a.month.localeCompare(b.month));
+    for (let d = new Date(start); d <= end; d.setMonth(d.getMonth() + 1)) {
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const ex = map.get(ym);
+      out.push(ex || { month: ym, income: 0, expense: 0 });
+    }
+    return out;
+  }
+  const out = [];
+  const now = new Date();
+  for (let k = 11; k >= 0; k--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - k, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    out.push(map.get(ym) || { month: ym, income: 0, expense: 0 });
+  }
+  return out;
+}
+
+function sumMaintenanceCollectedForPeriod(rows, timeRange, customFrom, customTo) {
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  const { from, to } = getRangeBounds(timeRange, customFrom, customTo);
+  return (rows || []).reduce((sum, m) => {
+    let ok = false;
+    if (timeRange === 'all') ok = true;
+    else if (timeRange === 'month') ok = m.month === currentMonth && m.year === currentYear;
+    else if (timeRange === 'custom' && from && to) {
+      if (m.paid_date) {
+        const pd = String(m.paid_date).split('T')[0];
+        ok = pd >= from && pd < to;
+      } else {
+        const mid = `${m.year}-${String(m.month).padStart(2, '0')}-15`;
+        ok = mid >= from && mid < to;
+      }
+    }
+    return ok ? sum + Number(m.paid_amount || 0) : sum;
+  }, 0);
+}
+
+function sumPendingMaintenanceForPeriod(rows, timeRange, customFrom, customTo) {
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  return (rows || []).reduce((sum, m) => {
+    if (m.status !== 'pending') return sum;
+    const amt = Number(m.amount ?? 0);
+    if (timeRange === 'all') return sum + amt;
+    if (timeRange === 'month') {
+      return m.month === currentMonth && m.year === currentYear ? sum + amt : sum;
+    }
+    if (timeRange === 'custom' && customFrom && customTo) {
+      const rowYm = `${m.year}-${String(m.month).padStart(2, '0')}`;
+      const fromYm = customFrom.slice(0, 7);
+      const toYm = customTo.slice(0, 7);
+      return rowYm >= fromYm && rowYm <= toYm ? sum + amt : sum;
+    }
+    return sum;
+  }, 0);
+}
 
 const Dashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [recentIncome, setRecentIncome] = useState([]);
-  const [recentExpenses, setRecentExpenses] = useState([]);
-  const [recentTransactions, setRecentTransactions] = useState([]);
   const [chartItems, setChartItems] = useState([]);
   const [announcementPreview, setAnnouncementPreview] = useState([]);
   const [expenseByCategory, setExpenseByCategory] = useState([]);
   const [timeRange, setTimeRange] = useState('all'); // all | month | custom
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [incomeCategories, setIncomeCategories] = useState([]);
+  const [expenseCategories, setExpenseCategories] = useState([]);
+  const [modalFlats, setModalFlats] = useState([]);
+  const [receiptSaving, setReceiptSaving] = useState(false);
+  const [expenseSaving, setExpenseSaving] = useState(false);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [receiptForm, setReceiptForm] = useState({
+    amount: '',
+    category: '',
+    description: '',
+    date: todayStr,
+    payment_mode: 'cash',
+    flat_id: '',
+    maintenance_month: '',
+  });
+
+  const receiptMaintenanceMonthOptions = useMemo(() => {
+    const base = getMaintenanceMonthOptions();
+    const v = receiptForm.maintenance_month;
+    if (v && /^\d{4}-\d{2}$/.test(String(v)) && !base.some((o) => o.value === v)) {
+      const [y, mo] = String(v).split('-').map(Number);
+      const d = new Date(y, mo - 1, 1);
+      const label = d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
+      return [{ value: v, label }, ...base].sort((a, b) => a.value.localeCompare(b.value));
+    }
+    return base;
+  }, [receiptForm.maintenance_month]);
+
+  const [expenseForm, setExpenseForm] = useState({
+    amount: '',
+    category: '',
+    description: '',
+    date: todayStr,
+    payment_mode: 'cash',
+  });
   const [stats, setStats] = useState({
     totalIncomeThisMonth: 0,
     totalExpensesThisMonth: 0,
@@ -101,12 +212,28 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeApartmentId, timeRange, customFrom, customTo]);
 
+  useEffect(() => {
+    if (!activeApartmentId || (!showReceiptModal && !showExpenseModal)) return;
+    let cancelled = false;
+    (async () => {
+      const [{ data: ic }, { data: ec }, { data: fl }] = await Promise.all([
+        supabase.from('income_categories').select('id, name').eq('apartment_id', activeApartmentId).eq('is_active', true).order('name'),
+        supabase.from('expense_categories').select('id, name').eq('apartment_id', activeApartmentId).eq('is_active', true).order('name'),
+        supabase.from('flats').select('id, flat_number, monthly_maintenance').eq('apartment_id', activeApartmentId).order('flat_number'),
+      ]);
+      if (cancelled) return;
+      setIncomeCategories(ic || []);
+      setExpenseCategories(ec || []);
+      setModalFlats(fl || []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeApartmentId, showReceiptModal, showExpenseModal]);
+
   const fetchDashboardStats = async () => {
     try {
       setLoading(true);
-      const now = new Date();
-      const currentMonth = now.getMonth() + 1;
-      const currentYear = now.getFullYear();
 
       const { from, to } = getRangeBounds(timeRange, customFrom, customTo);
 
@@ -127,10 +254,7 @@ const Dashboard = () => {
         { data: periodExpenseRows },
         { data: totalIncomeData },
         { data: totalExpensesData },
-        { data: maintenancePaidData },
-        { data: maintenancePendingData },
-        { data: recentIncomeData },
-        { data: recentExpenseData },
+        { data: maintenanceRows },
         { data: aptOpeningRow },
         { data: announcementRows },
       ] = await withTimeout(
@@ -143,10 +267,10 @@ const Dashboard = () => {
           periodExpenseQ,
           supabase.from('income').select('amount').eq('apartment_id', activeApartmentId),
           supabase.from('expenses').select('amount').eq('apartment_id', activeApartmentId),
-          supabase.from('maintenance').select('paid_amount').eq('apartment_id', activeApartmentId).eq('month', currentMonth).eq('year', currentYear).eq('status', 'paid'),
-          supabase.from('maintenance').select('amount').eq('apartment_id', activeApartmentId).eq('month', currentMonth).eq('year', currentYear).eq('status', 'pending'),
-          supabase.from('income').select('*').eq('apartment_id', activeApartmentId).order('date', { ascending: false }).limit(4),
-          supabase.from('expenses').select('*').eq('apartment_id', activeApartmentId).order('date', { ascending: false }).limit(4),
+          supabase
+            .from('maintenance')
+            .select('amount, paid_amount, paid_date, month, year, status')
+            .eq('apartment_id', activeApartmentId),
           supabase.from('apartments').select('opening_balance').eq('id', activeApartmentId).maybeSingle(),
           supabase
             .from('announcements')
@@ -160,11 +284,13 @@ const Dashboard = () => {
 
       const flatsList = flatRows || [];
       const totalFlats = flatsList.length;
-      const totalFlatPendingMaintenance = flatsList.reduce((s, row) => {
-        const m = Number(row?.monthly_maintenance ?? 0);
-        const p = Number(row?.pending_maintenance ?? 0);
-        return s + m + p;
-      }, 0);
+      const maintenancePaidRows = (maintenanceRows || []).filter((m) => m.status === 'paid');
+      const totalFlatPendingMaintenance = sumPendingMaintenanceForPeriod(
+        maintenanceRows || [],
+        timeRange,
+        customFrom,
+        customTo
+      );
       const otherMaintenanceOnFlats = flatsList.reduce((s, row) => s + Number(row?.other_maintenance ?? 0), 0) || 0;
 
       setAnnouncementPreview(announcementRows || []);
@@ -187,9 +313,6 @@ const Dashboard = () => {
       const openingBal = Number(aptOpeningRow?.opening_balance ?? 0);
       const periodNetIncomeExpense = periodIncome - periodExpense;
 
-      setRecentIncome(recentIncomeData || []);
-      setRecentExpenses(recentExpenseData || []);
-
       setStats({
         totalIncomeThisMonth: periodIncome,
         totalExpensesThisMonth: periodExpense,
@@ -197,8 +320,13 @@ const Dashboard = () => {
         totalExpenses: allExpenseSum,
         currentBalance: timeRange === 'all' ? openingBal + periodNetIncomeExpense : periodNetIncomeExpense,
         openingBalance: openingBal,
-        maintenanceCollected: maintenancePaidData?.reduce((s, i) => s + Number(i.paid_amount), 0) || 0,
-        maintenancePending: maintenancePendingData?.reduce((s, i) => s + Number(i.amount), 0) || 0,
+        maintenanceCollected: sumMaintenanceCollectedForPeriod(
+          maintenancePaidRows,
+          timeRange,
+          customFrom,
+          customTo
+        ),
+        maintenancePending: 0,
         totalFlats,
         totalFlatPendingMaintenance,
         otherMaintenanceOnFlats,
@@ -274,53 +402,6 @@ const Dashboard = () => {
       const items = Array.from(buckets.values()).sort((a, b) => a.month.localeCompare(b.month));
       const last12 = items.slice(-12);
       setChartItems(last12);
-
-      // Last 30 days (all types) — for sidebar with View Bill
-      const since = new Date();
-      since.setDate(since.getDate() - 30);
-      const from30 = since.toISOString().split('T')[0];
-
-      const [{ data: inc30 }, { data: exp30 }] = await Promise.all([
-        supabase
-          .from('income')
-          .select('id,date,amount,category,description,payment_mode,attachment_url')
-          .eq('apartment_id', activeApartmentId)
-          .gte('date', from30),
-        supabase
-          .from('expenses')
-          .select('id,date,amount,category,description,payment_mode,attachment_url')
-          .eq('apartment_id', activeApartmentId)
-          .gte('date', from30),
-      ]);
-
-      const tx = [
-        ...(inc30 || []).map((r) => ({
-          kind: 'income',
-          id: r.id,
-          type: 'Income',
-          title: r.description || r.category || 'Income',
-          amount: Number(r.amount || 0),
-          date: r.date,
-          paymentMode: r.payment_mode || '-',
-          attachmentUrl: r.attachment_url || null,
-          sortKey: `${r.date || ''}-1-${r.id}`,
-        })),
-        ...(exp30 || []).map((r) => ({
-          kind: 'expense',
-          id: r.id,
-          type: 'Expense',
-          title: r.description || r.category || 'Expense',
-          amount: Number(r.amount || 0),
-          date: r.date,
-          paymentMode: r.payment_mode || '-',
-          attachmentUrl: r.attachment_url || null,
-          sortKey: `${r.date || ''}-0-${r.id}`,
-        })),
-      ]
-        .sort((a, b) => (b.sortKey || '').localeCompare(a.sortKey || ''))
-        .slice(0, 25);
-
-      setRecentTransactions(tx);
     } catch (e) {
       console.error('Failed to load chart/transactions', e);
     }
@@ -328,30 +409,106 @@ const Dashboard = () => {
 
   const subscription = userProfile ? checkSubscription() : { valid: true, status: null, daysLeft: null };
 
-  const incomeStatLabel =
-    timeRange === 'all' ? 'Total Income' : timeRange === 'month' ? 'Income (this month)' : 'Income (period)';
-  const expenseStatLabel =
-    timeRange === 'all' ? 'Total Expenses' : timeRange === 'month' ? 'Expenses (this month)' : 'Expenses (period)';
-  const netStatLabel =
-    timeRange === 'all'
-      ? 'Net (all time, incl. opening)'
-      : timeRange === 'month'
-        ? 'Net (this month)'
-        : 'Net (period)';
-
   const periodNet =
     timeRange === 'all'
       ? stats.openingBalance + stats.totalIncomeThisMonth - stats.totalExpensesThisMonth
       : stats.totalIncomeThisMonth - stats.totalExpensesThisMonth;
 
-  const handleViewBill = async (attachmentUrl) => {
-    if (!attachmentUrl) return;
+  const barChartItems = useMemo(
+    () => padChartItems(chartItems || [], timeRange, customFrom, customTo),
+    [chartItems, timeRange, customFrom, customTo]
+  );
+
+  const submitReceipt = async (e) => {
+    e.preventDefault();
+    if (!activeApartmentId || !userProfile?.id) return;
+    if (!receiptForm.amount || parseFloat(receiptForm.amount) <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    if (!receiptForm.category) {
+      toast.error('Please select a category');
+      return;
+    }
     try {
-      const url = await getSignedUrl(attachmentUrl);
-      if (url) window.open(url, '_blank');
-    } catch (e) {
-      console.error(e);
-      toast.error('Could not open bill');
+      setReceiptSaving(true);
+      const mm =
+        receiptForm.maintenance_month && /^\d{4}-\d{2}$/.test(receiptForm.maintenance_month)
+          ? receiptForm.maintenance_month
+          : null;
+      const row = {
+        apartment_id: activeApartmentId,
+        flat_id: receiptForm.flat_id || null,
+        amount: parseFloat(receiptForm.amount),
+        category: receiptForm.category,
+        description: receiptForm.description || null,
+        date: receiptForm.date,
+        payment_mode: receiptForm.payment_mode,
+        ...(mm ? { maintenance_month: mm } : { maintenance_month: null }),
+        created_by: userProfile.id,
+      };
+      const { error } = await supabase.from('income').insert(row);
+      if (error) throw error;
+      toast.success('Receipt added');
+      setShowReceiptModal(false);
+      setReceiptForm({
+        amount: '',
+        category: '',
+        description: '',
+        date: todayStr,
+        payment_mode: 'cash',
+        flat_id: '',
+        maintenance_month: '',
+      });
+      fetchDashboardStats();
+      fetchChartAndTransactions();
+    } catch (err) {
+      console.error(err);
+      toast.error('Could not add receipt');
+    } finally {
+      setReceiptSaving(false);
+    }
+  };
+
+  const submitExpenseQuick = async (e) => {
+    e.preventDefault();
+    if (!activeApartmentId || !userProfile?.id) return;
+    if (!expenseForm.amount || parseFloat(expenseForm.amount) <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    if (!expenseForm.category) {
+      toast.error('Please select a category');
+      return;
+    }
+    try {
+      setExpenseSaving(true);
+      const { error } = await supabase.from('expenses').insert({
+        apartment_id: activeApartmentId,
+        amount: parseFloat(expenseForm.amount),
+        category: expenseForm.category,
+        description: expenseForm.description || null,
+        date: expenseForm.date,
+        payment_mode: expenseForm.payment_mode,
+        created_by: userProfile.id,
+      });
+      if (error) throw error;
+      toast.success('Expense added');
+      setShowExpenseModal(false);
+      setExpenseForm({
+        amount: '',
+        category: '',
+        description: '',
+        date: todayStr,
+        payment_mode: 'cash',
+      });
+      fetchDashboardStats();
+      fetchChartAndTransactions();
+    } catch (err) {
+      console.error(err);
+      toast.error('Could not add expense');
+    } finally {
+      setExpenseSaving(false);
     }
   };
 
@@ -360,13 +517,13 @@ const Dashboard = () => {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} role={userProfile?.role} />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar onMenuClick={() => setSidebarOpen(true)} title="Dashboard" />
+        <TopBar onMenuClick={() => setSidebarOpen(true)} title="" hideTitle />
         
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
 
           {loading ? (
             <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
-              <div className="w-10 h-10 border-4 border-lime-400 border-t-transparent rounded-full animate-spin" />
+              <div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin" />
               <p className="text-sm text-gray-500">Loading dashboard…</p>
             </div>
           ) : (
@@ -389,286 +546,350 @@ const Dashboard = () => {
                 </div>
               )}
 
-              {/* Welcome Banner */}
-              <div className="bg-gradient-to-r from-slate-700 via-slate-600 to-slate-700 rounded-xl p-4 mb-4 text-white relative overflow-hidden border border-slate-600/50">
-                <div className="absolute top-0 right-0 w-48 h-48 bg-lime-400/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-                <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <div className="w-1.5 h-1.5 bg-lime-300 rounded-full animate-pulse" />
-                    <span className="text-lime-200/90 text-xs font-medium">{apartment?.name}</span>
+              {/* Title row + actions (matches mock) */}
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-11 h-11 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-sm">
+                    {(apartment?.name || 'S').trim().charAt(0).toUpperCase()}
                   </div>
-                  <h1 className="text-lg sm:text-xl font-bold">Welcome back, {userProfile?.name?.split(' ')[0] || 'Admin'}!</h1>
-                  <p className="text-slate-300 mt-0.5 text-xs">Financial summary for the selected period</p>
-                </div>
-              </div>
-
-              {/* Period filter + primary actions (top) */}
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-medium text-gray-500">Period</span>
-                  <select
-                    value={timeRange}
-                    onChange={(e) => setTimeRange(e.target.value)}
-                    className="bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
-                  >
-                    <option value="all">All Time</option>
-                    <option value="month">This Month</option>
-                    <option value="custom">Custom</option>
-                  </select>
-                  {timeRange === 'custom' && (
-                    <>
-                      <div className="relative">
-                        <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                        <input
-                          type="date"
-                          value={customFrom}
-                          onChange={(e) => setCustomFrom(e.target.value)}
-                          className="bg-white border border-gray-200 rounded-lg pl-7 pr-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-lime-400"
-                        />
-                      </div>
-                      <div className="relative">
-                        <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                        <input
-                          type="date"
-                          value={customTo}
-                          onChange={(e) => setCustomTo(e.target.value)}
-                          className="bg-white border border-gray-200 rounded-lg pl-7 pr-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-lime-400"
-                        />
-                      </div>
-                    </>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    to="/admin/income"
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-200/80 transition-colors"
-                  >
-                    <Plus size={16} />
-                    Add Income
-                  </Link>
-                  <Link
-                    to="/admin/expenses"
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200/90 transition-colors"
-                  >
-                    <Plus size={16} />
-                    Add Expense
-                  </Link>
-                </div>
-              </div>
-
-              {/* Stats Grid — period follows “All Time / Month / Custom” (same as chart) */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-                <StatCard
-                  icon={TrendingUp}
-                  label={incomeStatLabel}
-                  value={formatCurrency(stats.totalIncomeThisMonth)}
-                  className="border-lime-200/70 bg-lime-50/40"
-                  iconBg="bg-lime-100/90"
-                  iconColor="text-lime-700"
-                />
-                <StatCard
-                  icon={TrendingDown}
-                  label={expenseStatLabel}
-                  value={formatCurrency(stats.totalExpensesThisMonth)}
-                  className="border-rose-200/80 bg-rose-50/30"
-                  iconBg="bg-rose-100/80"
-                  iconColor="text-rose-700"
-                />
-                <StatCard
-                  icon={IndianRupee}
-                  label={netStatLabel}
-                  value={formatCurrency(periodNet)}
-                  subValue={periodNet >= 0 ? 'Surplus' : 'Deficit'}
-                  className={periodNet >= 0 ? 'border-sky-200/80 bg-sky-50/30' : 'border-amber-200/80 bg-amber-50/40'}
-                  iconBg={periodNet >= 0 ? 'bg-sky-100' : 'bg-amber-100'}
-                  iconColor={periodNet >= 0 ? 'text-sky-700' : 'text-amber-800'}
-                />
-                <StatCard
-                  icon={Clock}
-                  label="Pending maintenance (flats)"
-                  value={formatCurrency(stats.totalFlatPendingMaintenance)}
-                  subValue={`${stats.totalFlats} flat(s) · Month + balance · Other charges: ${formatCurrency(stats.otherMaintenanceOnFlats)}`}
-                  className="border-violet-200/70 bg-violet-50/25"
-                  iconBg="bg-violet-100/90"
-                  iconColor="text-violet-700"
-                />
-              </div>
-
-              {/* Chart + announcements */}
-              <div className="grid lg:grid-cols-12 gap-4 mb-6">
-                <div className="lg:col-span-7 xl:col-span-8">
-                  <div className="flex items-center gap-2 mb-2">
-                    <BarChart3 className="text-lime-600" size={16} />
-                    <p className="text-xs font-semibold text-gray-800">Income vs expenses by month</p>
-                  </div>
-                  <MonthlyIncomeExpenseChart items={chartItems} />
-                </div>
-
-                <div className="lg:col-span-5 xl:col-span-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Megaphone className="text-lime-600" size={16} />
-                      <p className="text-xs font-semibold text-gray-800">Announcements</p>
-                    </div>
-                    <Link to="/admin/announcements" className="text-xs font-medium text-lime-700 hover:text-lime-800 flex items-center gap-0.5">
-                      Manage <ArrowRight size={12} />
-                    </Link>
-                  </div>
-                  <div className="bg-white rounded-xl border border-gray-200/90 shadow-sm p-4 min-h-[200px]">
-                    {announcementPreview.length === 0 ? (
-                      <p className="text-xs text-gray-500 text-center py-8">No announcements yet. Residents see updates here.</p>
-                    ) : (
-                      <ul className="space-y-3">
-                        {announcementPreview.map((a) => (
-                          <li key={a.id} className="border-b border-gray-100 last:border-0 pb-3 last:pb-0">
-                            <p className="text-sm font-medium text-gray-900 line-clamp-1">{a.title || 'Announcement'}</p>
-                            <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{a.message}</p>
-                            <p className="text-[10px] text-gray-400 mt-1">{a.created_at ? formatDate(a.created_at) : ''}</p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                  <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50/80 p-3 space-y-2">
-                    <p className="text-[11px] font-semibold text-gray-700">At a glance</p>
-                    <p className="text-xs text-gray-600">
-                      <span className="font-medium text-gray-800">{stats.totalFlats}</span> flats · pending maintenance (flats){' '}
-                      <span className="font-medium text-gray-800">{formatCurrency(stats.totalFlatPendingMaintenance)}</span>
-                    </p>
-                    {expenseByCategory.length > 0 ? (
-                      <div>
-                        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-1">Expenses by category (period)</p>
-                        <ul className="space-y-1">
-                          {expenseByCategory.map(([name, amt]) => (
-                            <li key={name} className="flex justify-between gap-2 text-[11px] text-gray-700">
-                              <span className="truncate">{name}</span>
-                              <span className="shrink-0 font-medium text-gray-900">{formatCurrency(amt)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : (
-                      <p className="text-[11px] text-gray-500">No expenses in this period for a category breakdown.</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Recent Income & Expenses */}
-              <div className="grid lg:grid-cols-2 gap-6 mb-6">
-                {/* Recent Income */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-gray-900">Recent Income</h3>
-                    <Link to="/admin/income" className="text-sm text-lime-700 hover:text-lime-800 font-medium flex items-center gap-1">
-                      View all <ArrowRight size={14} />
-                    </Link>
-                  </div>
-                  {recentIncome.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-6">No income records yet</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {recentIncome.map(item => (
-                        <div key={item.id} className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{item.description || item.category}</p>
-                            <p className="text-xs text-gray-500">{item.date}</p>
-                          </div>
-                          <span className="text-sm font-semibold text-lime-700">+{formatCurrency(item.amount)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Recent Expenses */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-gray-900">Recent Expenses</h3>
-                    <Link to="/admin/expenses" className="text-sm text-red-600 hover:text-red-700 font-medium flex items-center gap-1">
-                      View all <ArrowRight size={14} />
-                    </Link>
-                  </div>
-                  {recentExpenses.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-6">No expense records yet</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {recentExpenses.map(item => (
-                        <div key={item.id} className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{item.description || item.category}</p>
-                            <p className="text-xs text-gray-500">{item.date}</p>
-                          </div>
-                          <span className="text-sm font-semibold text-red-600">-{formatCurrency(item.amount)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Recent (30 days) — full width */}
-              <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
                   <div>
-                    <h3 className="font-semibold text-gray-900 text-lg">Recent (30 days)</h3>
-                    <p className="text-sm text-gray-500 mt-1">Includes income and expenses from the last 30 days.</p>
+                    <h1 className="text-xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
+                    <p className="text-sm text-gray-500 mt-0.5">Financial Overview</p>
                   </div>
-                  <Link to="/admin/reports" className="text-sm text-lime-700 hover:text-lime-800 font-medium flex items-center gap-1 shrink-0">
-                    Reports <ArrowRight size={14} />
-                  </Link>
                 </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowReceiptModal(true)}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white shadow-sm transition-colors"
+                    style={{ backgroundColor: DASH_GREEN }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = DASH_GREEN_HOVER;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = DASH_GREEN;
+                    }}
+                  >
+                    <Plus size={18} strokeWidth={2.5} />
+                    Add Receipt
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowExpenseModal(true)}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold bg-white border border-gray-300 text-gray-800 hover:bg-gray-50 shadow-sm"
+                  >
+                    <Receipt size={18} />
+                    Add Expense
+                  </button>
+                </div>
+              </div>
 
-                {recentTransactions.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-12">No transactions in the last 30 days</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[640px]">
-                      <thead className="text-xs text-gray-500 border-b border-gray-100">
-                        <tr>
-                          <th className="text-left py-3 pr-4 font-medium">Type</th>
-                          <th className="text-left py-3 pr-4 font-medium">Title</th>
-                          <th className="text-right py-3 px-4 font-medium w-28">Amount</th>
-                          <th className="text-left py-3 px-4 font-medium w-32">Date</th>
-                          <th className="text-right py-3 pl-4 font-medium w-24">Bill</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {recentTransactions.map((t) => (
-                          <tr key={t.sortKey} className="text-sm">
-                            <td className="py-3 pr-4">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                t.type === 'Income' ? 'bg-lime-100 text-lime-800' : 'bg-red-100 text-red-800'
-                              }`}>
-                                {t.type}
-                              </span>
-                            </td>
-                            <td className="py-3 pr-4 text-gray-900 max-w-md truncate" title={t.title}>{t.title}</td>
-                            <td className={`py-3 px-4 text-right font-semibold whitespace-nowrap ${t.type === 'Income' ? 'text-lime-700' : 'text-red-600'}`}>
-                              {t.type === 'Income' ? '+' : '-'}{formatCurrency(t.amount)}
-                            </td>
-                            <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{t.date ? formatDate(t.date) : '-'}</td>
-                            <td className="py-3 pl-4 text-right">
-                              {t.attachmentUrl ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleViewBill(t.attachmentUrl)}
-                                  className="text-lime-700 hover:text-lime-900 text-xs font-medium inline-flex items-center gap-1"
-                                >
-                                  <FileText size={14} />
-                                  View
-                                </button>
-                              ) : (
-                                <span className="text-gray-300">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+              {/* Period */}
+              <div className="flex flex-wrap items-center gap-2 mb-5">
+                <span className="text-xs font-medium text-gray-500">Period</span>
+                <select
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(e.target.value)}
+                  className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0"
+                >
+                  <option value="all">All Time</option>
+                  <option value="month">This Month</option>
+                  <option value="custom">Custom</option>
+                </select>
+                {timeRange === 'custom' && (
+                  <>
+                    <div className="relative">
+                      <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                      <input
+                        type="date"
+                        value={customFrom}
+                        onChange={(e) => setCustomFrom(e.target.value)}
+                        className="bg-white border border-gray-200 rounded-lg pl-8 pr-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
+                    </div>
+                    <div className="relative">
+                      <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                      <input
+                        type="date"
+                        value={customTo}
+                        onChange={(e) => setCustomTo(e.target.value)}
+                        className="bg-white border border-gray-200 rounded-lg pl-8 pr-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
+                    </div>
+                  </>
                 )}
               </div>
+
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2 rounded-lg bg-green-50">
+                      <IndianRupee className="text-[#16a34a]" size={20} strokeWidth={2} />
+                    </div>
+                  </div>
+                  <p className="text-xs font-medium text-gray-500">Total maintenance collected</p>
+                  <p className="text-lg font-bold text-gray-900 mt-1 tabular-nums">{formatCurrency(stats.maintenanceCollected)}</p>
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2 rounded-lg bg-red-50">
+                      <TrendingDown className="text-red-600" size={20} />
+                    </div>
+                  </div>
+                  <p className="text-xs font-medium text-gray-500">Total Expenses</p>
+                  <p className="text-lg font-bold text-gray-900 mt-1 tabular-nums">{formatCurrency(stats.totalExpensesThisMonth)}</p>
+                </div>
+                <div className="rounded-xl border border-blue-600 bg-blue-600 p-4 shadow-sm text-white">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2 rounded-lg bg-white/20">
+                      <Wallet className="text-white" size={20} />
+                    </div>
+                  </div>
+                  <p className="text-xs font-medium text-blue-100">Current Balance</p>
+                  <p className="text-lg font-bold mt-1 tabular-nums">{formatCurrency(periodNet)}</p>
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-2 rounded-lg bg-amber-50">
+                      <Clock className="text-amber-600" size={20} />
+                    </div>
+                  </div>
+                  <p className="text-xs font-medium text-gray-500">Pending maintenance</p>
+                  <p className="text-lg font-bold text-gray-900 mt-1 tabular-nums">{formatCurrency(stats.totalFlatPendingMaintenance)}</p>
+                </div>
+              </div>
+
+              {/* Latest announcement */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-6">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2">
+                    <Megaphone className="text-[#16a34a]" size={18} />
+                    <h2 className="text-sm font-semibold text-gray-900">Latest Announcement</h2>
+                  </div>
+                  <Link
+                    to="/admin/announcements"
+                    className="text-xs font-medium flex items-center gap-0.5 hover:underline"
+                    style={{ color: DASH_GREEN }}
+                  >
+                    Manage <ArrowRight size={12} />
+                  </Link>
+                </div>
+                {announcementPreview.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-6">No announcements available.</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {announcementPreview.slice(0, 1).map((a) => (
+                      <li key={a.id}>
+                        <p className="text-sm font-medium text-gray-900">{a.title || 'Announcement'}</p>
+                        <p className="text-xs text-gray-600 mt-1 line-clamp-3">{a.message}</p>
+                        <p className="text-[10px] text-gray-400 mt-2">{a.created_at ? formatDate(a.created_at) : ''}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Charts row */}
+              <div className="grid lg:grid-cols-2 gap-4 mb-8">
+                <DashboardMonthlyBarChart items={barChartItems} incomeColor={DASH_GREEN} />
+                <ExpenseDonutChart entries={expenseByCategory} />
+              </div>
+
+              <div className="flex flex-wrap gap-3 text-sm">
+                <Link to="/admin/income" className="font-medium hover:underline" style={{ color: DASH_GREEN }}>
+                  View all income records <ArrowRight className="inline" size={14} />
+                </Link>
+                <span className="text-gray-300">|</span>
+                <Link to="/admin/expenses" className="text-gray-600 font-medium hover:text-gray-900">
+                  View all expenses
+                </Link>
+                <span className="text-gray-300">|</span>
+                <Link to="/admin/reports" className="text-gray-600 font-medium hover:text-gray-900">
+                  Reports
+                </Link>
+              </div>
+
+              {/* Add Receipt modal */}
+              <Modal
+                isOpen={showReceiptModal}
+                onClose={() => setShowReceiptModal(false)}
+                title="Add Receipt"
+                subtitle="Record income / receipt for the selected apartment"
+                size="lg"
+              >
+                <form onSubmit={submitReceipt} className="space-y-4">
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <InputField
+                      label="Amount (₹)"
+                      name="amount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={receiptForm.amount}
+                      onChange={(e) => setReceiptForm({ ...receiptForm, amount: e.target.value })}
+                      icon={IndianRupee}
+                      required
+                    />
+                    <InputField
+                      label="Date"
+                      name="date"
+                      type="date"
+                      value={receiptForm.date}
+                      onChange={(e) => setReceiptForm({ ...receiptForm, date: e.target.value })}
+                      icon={Calendar}
+                      required
+                    />
+                  </div>
+                  <InputField
+                    label="Category"
+                    name="category"
+                    type="select"
+                    value={receiptForm.category}
+                    onChange={(e) => setReceiptForm({ ...receiptForm, category: e.target.value })}
+                    options={[
+                      { value: '', label: 'Select category' },
+                      ...incomeCategories.map((c) => ({ value: c.name, label: c.name })),
+                    ]}
+                    required
+                  />
+                  <InputField
+                    label="Description"
+                    name="description"
+                    type="text"
+                    value={receiptForm.description}
+                    onChange={(e) => setReceiptForm({ ...receiptForm, description: e.target.value })}
+                  />
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <InputField
+                      label="Payment mode"
+                      name="payment_mode"
+                      type="select"
+                      value={receiptForm.payment_mode}
+                      onChange={(e) => setReceiptForm({ ...receiptForm, payment_mode: e.target.value })}
+                      options={[
+                        { value: 'cash', label: 'Cash' },
+                        { value: 'upi', label: 'UPI' },
+                        { value: 'bank_transfer', label: 'Bank Transfer' },
+                        { value: 'cheque', label: 'Cheque' },
+                        { value: 'online', label: 'Online' },
+                      ]}
+                    />
+                    <InputField
+                      label="Flat (optional)"
+                      name="flat_id"
+                      type="select"
+                      value={receiptForm.flat_id}
+                      onChange={(e) => {
+                        const flatId = e.target.value;
+                        const flat = modalFlats.find((f) => f.id === flatId);
+                        const maint = flat?.monthly_maintenance;
+                        const amountFromFlat =
+                          maint != null && maint !== '' && !Number.isNaN(Number(maint))
+                            ? String(Number(maint))
+                            : undefined;
+                        setReceiptForm((prev) => ({
+                          ...prev,
+                          flat_id: flatId,
+                          ...(amountFromFlat !== undefined ? { amount: amountFromFlat } : {}),
+                        }));
+                      }}
+                      options={[{ value: '', label: '—' }, ...modalFlats.map((f) => ({ value: f.id, label: f.flat_number }))]}
+                    />
+                  </div>
+                  <InputField
+                    label="Maintenance month (optional)"
+                    name="maintenance_month"
+                    type="select"
+                    value={receiptForm.maintenance_month}
+                    onChange={(e) => setReceiptForm({ ...receiptForm, maintenance_month: e.target.value })}
+                    options={[{ value: '', label: '—' }, ...receiptMaintenanceMonthOptions]}
+                  />
+                  <div className="flex gap-3 pt-2">
+                    <Button type="button" variant="outline" fullWidth onClick={() => setShowReceiptModal(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" variant="primary" fullWidth loading={receiptSaving}>
+                      Save receipt
+                    </Button>
+                  </div>
+                </form>
+              </Modal>
+
+              {/* Add Expense modal */}
+              <Modal
+                isOpen={showExpenseModal}
+                onClose={() => setShowExpenseModal(false)}
+                title="Add Expense"
+                subtitle="Record a society expense"
+                size="lg"
+              >
+                <form onSubmit={submitExpenseQuick} className="space-y-4">
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <InputField
+                      label="Amount (₹)"
+                      name="amount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={expenseForm.amount}
+                      onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+                      icon={IndianRupee}
+                      required
+                    />
+                    <InputField
+                      label="Date"
+                      name="date"
+                      type="date"
+                      value={expenseForm.date}
+                      onChange={(e) => setExpenseForm({ ...expenseForm, date: e.target.value })}
+                      icon={Calendar}
+                      required
+                    />
+                  </div>
+                  <InputField
+                    label="Category"
+                    name="category"
+                    type="select"
+                    value={expenseForm.category}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
+                    options={[
+                      { value: '', label: 'Select category' },
+                      ...expenseCategories.map((c) => ({ value: c.name, label: c.name })),
+                    ]}
+                    required
+                  />
+                  <InputField
+                    label="Description"
+                    name="description"
+                    type="text"
+                    value={expenseForm.description}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
+                  />
+                  <InputField
+                    label="Payment mode"
+                    name="payment_mode"
+                    type="select"
+                    value={expenseForm.payment_mode}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, payment_mode: e.target.value })}
+                    options={[
+                      { value: 'cash', label: 'Cash' },
+                      { value: 'upi', label: 'UPI' },
+                      { value: 'bank_transfer', label: 'Bank Transfer' },
+                      { value: 'cheque', label: 'Cheque' },
+                      { value: 'online', label: 'Online' },
+                    ]}
+                  />
+                  <div className="flex gap-3 pt-2">
+                    <Button type="button" variant="outline" fullWidth onClick={() => setShowExpenseModal(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" variant="primary" fullWidth loading={expenseSaving}>
+                      Save expense
+                    </Button>
+                  </div>
+                </form>
+              </Modal>
             </>
           )}
         </main>

@@ -58,6 +58,11 @@ const MyAccount = () => {
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
 
+    if (!passwordData.currentPassword?.trim()) {
+      toast.error('Current password is required');
+      return;
+    }
+
     if (!passwordData.newPassword) {
       toast.error('New password is required');
       return;
@@ -74,15 +79,18 @@ const MyAccount = () => {
     }
 
     setLoading(true);
-    const result = await updatePassword(passwordData.newPassword);
-    if (result.success) {
-      setPasswordData({
-        currentPassword: '',
-        newPassword: '',
-        confirmPassword: '',
-      });
+    try {
+      const result = await updatePassword(passwordData.newPassword, passwordData.currentPassword);
+      if (result?.success) {
+        setPasswordData({
+          currentPassword: '',
+          newPassword: '',
+          confirmPassword: '',
+        });
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const getPlanDetails = (planName) => {

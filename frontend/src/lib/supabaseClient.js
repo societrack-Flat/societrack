@@ -29,10 +29,18 @@ export const supabase = createClient(
 /**
  * Base URL for email links (password reset, etc.). Must exactly match an entry under
  * Supabase → Authentication → URL Configuration → Redirect URLs.
- * Prefer VITE_APP_URL in production; falls back to current origin in dev.
+ * In the browser, prefer the **current origin** (so custom domains like www stay on www).
+ * Use VITE_APP_URL when no window (e.g. tests) or on localhost.
  */
 export function getPublicSiteUrl() {
   const env = import.meta.env.VITE_APP_URL;
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const o = window.location.origin;
+    const isLocal = /localhost|127\.0\.0\.1/.test(o);
+    if (!isLocal) {
+      return o.replace(/\/$/, '');
+    }
+  }
   if (env && typeof env === 'string' && env.trim()) {
     return env.trim().replace(/\/$/, '');
   }

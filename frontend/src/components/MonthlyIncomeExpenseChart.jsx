@@ -51,12 +51,12 @@ export default function MonthlyIncomeExpenseChart({ items = [] }) {
     <div className="bg-white rounded-xl shadow-sm border border-gray-200/90 p-4">
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">Monthly trend</h3>
-          <p className="text-xs text-gray-500">Line chart — income vs expenses</p>
+          <h3 className="text-sm font-semibold text-gray-900">Monthly Income vs Expenses</h3>
+          <p className="text-xs text-gray-500">Line chart with grid — green = income, red = expenses</p>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-gray-600">
           <div className="flex items-center gap-1.5">
-            <span className="inline-block w-6 h-0.5 rounded bg-lime-500" />
+            <span className="inline-block w-6 h-0.5 rounded bg-green-500" />
             Income
           </div>
           <div className="flex items-center gap-1.5">

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Clock, Search, CheckCircle, AlertCircle, IndianRupee, Users, DoorOpen, Calendar, Download } from 'lucide-react';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, formatCurrency, formatDate, getMonthName } from '../../lib/supabaseClient';
 import Sidebar from '../../components/Sidebar';
@@ -362,30 +364,56 @@ const Maintenance = () => {
       toast.error('No pending maintenance rows to download');
       return;
     }
-    const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const header = ['Flat', 'Owner', 'Phone', 'Amount', 'Month', 'Year', 'Status'];
-    const lines = [
-      header.join(','),
-      ...pending.map((r) =>
-        [
-          r.flats?.flat_number ?? '',
-          escape(r.flats?.owner_name || ''),
-          escape(r.flats?.owner_phone || ''),
-          r.amount ?? '',
-          selectedMonth,
-          selectedYear,
-          r.status,
-        ].join(','),
-      ),
-    ];
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pending-maintenance-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('Download started');
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const periodLabel = `${getMonthName(selectedMonth)} ${selectedYear}`;
+    const aptName = apartment?.name || 'Society';
+
+    doc.setFontSize(16);
+    doc.setTextColor(0);
+    doc.text('Pending maintenance', 14, 18);
+    doc.setFontSize(11);
+    doc.text(aptName, 14, 26);
+    doc.setFontSize(10);
+    doc.setTextColor(80);
+    doc.text(`Period: ${periodLabel}`, 14, 32);
+    doc.text(`Generated ${formatDate(new Date())}`, 14, 38);
+
+    const total = pending.reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
+
+    doc.autoTable({
+      startY: 44,
+      head: [['Flat', 'Owner', 'Phone', 'Amount', 'Status']],
+      body: pending.map((r) => [
+        String(r.flats?.flat_number ?? '—'),
+        String(r.flats?.owner_name ?? '—'),
+        String(r.flats?.owner_phone ?? '—'),
+        formatCurrency(Number(r.amount ?? 0)),
+        r.status === 'pending' ? 'Pending' : String(r.status ?? '—'),
+      ]),
+      foot: [['', '', '', 'Total pending', formatCurrency(total)]],
+      theme: 'striped',
+      headStyles: { fillColor: [34, 197, 94] },
+      footStyles: { fillColor: [254, 243, 199], textColor: [0, 0, 0], fontStyle: 'bold' },
+      styles: { fontSize: 9 },
+      columnStyles: {
+        3: { halign: 'right' },
+        4: { halign: 'center' },
+      },
+    });
+
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150);
+      doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+    }
+
+    doc.save(`pending-maintenance-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.pdf`);
+    toast.success('PDF download started');
   };
 
   const months = Array.from({ length: 12 }, (_, i) => ({

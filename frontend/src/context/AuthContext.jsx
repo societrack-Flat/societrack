@@ -904,6 +904,44 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  /**
+   * Email/password accounts (custom signup). Verifies current password, then sets a new one via Supabase Auth.
+   */
+  const updatePassword = async (newPassword, currentPassword) => {
+    try {
+      const email = user?.email || userProfile?.email;
+      if (!user?.id || !email) {
+        toast.error('Signed-in email account required to change password');
+        return { success: false };
+      }
+      const current = String(currentPassword ?? '').trim();
+      if (!current) {
+        toast.error('Enter your current password');
+        return { success: false };
+      }
+      const { error: verifyErr } = await supabase.auth.signInWithPassword({
+        email,
+        password: current,
+      });
+      if (verifyErr) {
+        toast.error(verifyErr.message || 'Current password is incorrect');
+        return { success: false, error: verifyErr };
+      }
+      const { error: updateErr } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (updateErr) {
+        toast.error(updateErr.message || 'Could not update password');
+        return { success: false, error: updateErr };
+      }
+      toast.success('Password updated successfully');
+      return { success: true };
+    } catch (error) {
+      toast.error(error?.message || 'Failed to update password');
+      return { success: false, error };
+    }
+  };
+
   const checkSubscription = () => {
     if (!userProfile) return { valid: false, reason: 'no_profile', status: null, daysLeft: null };
     if (userProfile.role === 'super_admin') return { valid: true, status: null, daysLeft: null };
@@ -966,6 +1004,7 @@ export const AuthProvider = ({ children }) => {
     signInAsResident,
     resetPassword,
     updateProfile,
+    updatePassword,
     checkSubscription,
     clearCachedApartmentList,
   };

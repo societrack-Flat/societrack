@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Menu, Bell, User, LogOut, Settings, ChevronDown, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const TopBar = ({ onMenuClick, title }) => {
+const TopBar = ({ onMenuClick, title, hideTitle = false }) => {
   const navigate = useNavigate();
   const {
     userProfile,
@@ -47,7 +47,9 @@ const TopBar = ({ onMenuClick, title }) => {
             <Menu size={22} />
           </button>
           <div>
-            <h1 className="text-lg font-bold text-gray-900">{title}</h1>
+            {!hideTitle && title != null && title !== '' && (
+              <h1 className="text-lg font-bold text-gray-900">{title}</h1>
+            )}
             {/* Super Admin managing a society */}
             {isSaManaging && (
               <div className="flex flex-wrap items-center gap-2 mt-0.5">
