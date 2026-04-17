@@ -261,11 +261,10 @@ const Flats = () => {
           ) : (
             <div className="bg-white rounded-xl border border-gray-200/90 shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[960px] text-sm">
+                <table className="w-full min-w-[880px] text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     <tr>
                       <th className="py-3 px-3">Flat</th>
-                      <th className="py-3 px-3">Floor</th>
                       <th className="py-3 px-3">Resident</th>
                       <th className="py-3 px-3">Phone</th>
                       <th className="py-3 px-3">Email</th>
@@ -280,7 +279,6 @@ const Flats = () => {
                     {filteredFlats.map((flat) => (
                       <tr key={flat.id} className="hover:bg-gray-50/80">
                         <td className="py-3 px-3 font-medium text-gray-900 whitespace-nowrap">{flat.flat_number}</td>
-                        <td className="py-3 px-3 text-gray-600">{flat.floor_number ?? '—'}</td>
                         <td className="py-3 px-3 text-gray-800 max-w-[140px] truncate" title={flat.resident_name || flat.owner_name || ''}>
                           {flat.resident_name || flat.owner_name || '—'}
                         </td>

@@ -557,6 +557,19 @@ const Expenses = () => {
         subtitle={editingExpense ? 'Update expense details' : 'Record a new expense entry'}
       >
         <form onSubmit={handleSubmit} className="space-y-5">
+          <InputField
+            label="Category"
+            type="select"
+            name="category"
+            value={formData.category}
+            onChange={handleChange}
+            required
+            options={[
+              { value: '', label: 'Select Category' },
+              ...categories.map(cat => ({ value: cat.name, label: cat.name })),
+            ]}
+          />
+
           <div className="grid grid-cols-2 gap-4">
             <InputField
               label="Amount"
@@ -581,19 +594,6 @@ const Expenses = () => {
               required
             />
           </div>
-
-          <InputField
-            label="Category"
-            type="select"
-            name="category"
-            value={formData.category}
-            onChange={handleChange}
-            required
-            options={[
-              { value: '', label: 'Select Category' },
-              ...categories.map(cat => ({ value: cat.name, label: cat.name })),
-            ]}
-          />
 
           <InputField
             label="Vendor Name"

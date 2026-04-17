@@ -12,6 +12,7 @@ import toast from 'react-hot-toast';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
 import { CALENDAR_MONTH_OPTIONS, getMaintenanceYearOptions } from '../../utils/maintenanceMonthOptions';
+import { upsertMaintenanceFromIncomeReceipt } from '../../lib/upsertMaintenanceFromIncome';
 
 const formatMaintMonthLabel = (val) => {
   if (!val || !/^\d{4}-\d{2}$/.test(String(val))) return '—';
@@ -89,10 +90,21 @@ const Income = () => {
         .from('income')
         .select('*')
         .eq('apartment_id', activeApartmentId)
-        .order('date', { ascending: false });
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false, nullsFirst: false });
 
       if (error) throw error;
-      setIncome(data || []);
+      const rows = data || [];
+      // Tie-break same-day rows if created_at missing (older DBs)
+      rows.sort((a, b) => {
+        const byDate = String(b.date || '').localeCompare(String(a.date || ''));
+        if (byDate !== 0) return byDate;
+        const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+        if (tb !== ta) return tb - ta;
+        return String(b.id || '').localeCompare(String(a.id || ''));
+      });
+      setIncome(rows);
     } catch (error) {
       console.error('Error fetching income:', error);
       toast.error('Failed to load income records');
@@ -230,6 +242,25 @@ const Income = () => {
 
         if (error) throw error;
         toast.success('Income added successfully');
+      }
+
+      if (formData.category === 'Maintenance' && formData.flat_id) {
+        try {
+          await upsertMaintenanceFromIncomeReceipt({
+            apartmentId: activeApartmentId,
+            flatId: formData.flat_id,
+            maintenanceYear: formData.maintenanceYear,
+            maintenanceMonth: formData.maintenanceMonth,
+            amount: parseFloat(formData.amount),
+            paymentDate: formData.date,
+            paymentMode: formData.payment_mode,
+          });
+        } catch (syncErr) {
+          console.error(syncErr);
+          toast.error(
+            'Income saved, but the maintenance record could not be synced. You can correct it from the Maintenance tab.'
+          );
+        }
       }
 
       setShowModal(false);
@@ -695,7 +726,7 @@ const Income = () => {
               { value: '', label: 'Select Flat (Optional)' },
               ...flats.map(flat => ({
                 value: flat.id,
-                label: `${flat.flat_number} - ${flat.owner_name || 'No owner'}`
+                label: `${flat.flat_number} - ${flat.resident_name || flat.owner_name || 'No owner'}`
               }))
             ]}
           />

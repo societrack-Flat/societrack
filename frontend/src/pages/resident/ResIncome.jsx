@@ -30,12 +30,26 @@ const ResIncome = () => {
     try {
       setLoading(true);
       const [{ data: incomeRows, error: incomeError }, { data: flatRows, error: flatError }] = await Promise.all([
-        supabase.from('income').select('*').eq('apartment_id', apartmentId).order('date', { ascending: false }),
+        supabase
+          .from('income')
+          .select('*')
+          .eq('apartment_id', apartmentId)
+          .order('date', { ascending: false })
+          .order('created_at', { ascending: false, nullsFirst: false }),
         supabase.from('flats').select('id, flat_number, owner_name, resident_name').eq('apartment_id', apartmentId),
       ]);
       if (incomeError) throw incomeError;
       if (flatError) console.warn('Flats list:', flatError);
-      setIncome(incomeRows || []);
+      const rows = incomeRows || [];
+      rows.sort((a, b) => {
+        const byDate = String(b.date || '').localeCompare(String(a.date || ''));
+        if (byDate !== 0) return byDate;
+        const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+        if (tb !== ta) return tb - ta;
+        return String(b.id || '').localeCompare(String(a.id || ''));
+      });
+      setIncome(rows);
       setFlats(flatRows || []);
     } catch (error) {
       console.error('Error fetching income:', error);

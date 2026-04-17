@@ -25,6 +25,7 @@ import SupportChatPanel from '../../components/SupportChatPanel';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
 import { CALENDAR_MONTH_OPTIONS, getMaintenanceYearOptions } from '../../utils/maintenanceMonthOptions';
 import { pendingTotalForDashboardPeriod } from '../../utils/maintenancePending';
+import { upsertMaintenanceFromIncomeReceipt } from '../../lib/upsertMaintenanceFromIncome';
 
 /** Primary green — use consistently on admin dashboard (matches mock “Add Receipt”) */
 const DASH_GREEN = '#22c55e';
@@ -559,6 +560,24 @@ const Dashboard = () => {
       };
       const { error } = await supabase.from('income').insert(row);
       if (error) throw error;
+      if (row.category === 'Maintenance' && row.flat_id) {
+        try {
+          await upsertMaintenanceFromIncomeReceipt({
+            apartmentId: activeApartmentId,
+            flatId: row.flat_id,
+            maintenanceYear: receiptForm.maintenanceYear,
+            maintenanceMonth: receiptForm.maintenanceMonth,
+            amount: parseFloat(receiptForm.amount),
+            paymentDate: receiptForm.date,
+            paymentMode: receiptForm.payment_mode,
+          });
+        } catch (syncErr) {
+          console.error(syncErr);
+          toast.error(
+            'Receipt saved, but the maintenance record could not be synced. You can correct it from the Maintenance tab.'
+          );
+        }
+      }
       toast.success('Receipt added');
       closeReceiptModal();
       fetchDashboardStats();
@@ -776,29 +795,29 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              {/* Latest announcement — bright red styling; expired hidden in fetch */}
-              <div className="rounded-xl border-2 border-red-500 bg-red-50 shadow-sm p-5 mb-6">
+              {/* Latest announcement — card neutral; message body highlighted in red */}
+              <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-5 mb-6">
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2">
-                    <Megaphone className="text-red-600" size={18} />
-                    <h2 className="text-sm font-semibold text-red-600">Latest Announcement</h2>
+                    <Megaphone className="text-emerald-600" size={18} />
+                    <h2 className="text-sm font-semibold text-gray-900">Latest Announcement</h2>
                   </div>
                   <Link
                     to="/admin/announcements"
-                    className="text-xs font-medium flex items-center gap-0.5 hover:underline text-red-600"
+                    className="text-xs font-medium flex items-center gap-0.5 hover:underline text-emerald-600"
                   >
                     Manage <ArrowRight size={12} />
                   </Link>
                 </div>
                 {announcementPreview.length === 0 ? (
-                  <p className="text-sm text-red-700/80 text-center py-6">No announcements available.</p>
+                  <p className="text-sm text-gray-500 text-center py-6">No announcements available.</p>
                 ) : (
                   <ul className="space-y-3">
                     {announcementPreview.slice(0, 1).map((a) => (
                       <li key={a.id}>
-                        <p className="text-sm font-medium text-red-700">{a.title || 'Announcement'}</p>
-                        <p className="text-xs text-red-700 mt-1 line-clamp-3">{a.message}</p>
-                        <p className="text-[10px] text-red-600/80 mt-2">{a.created_at ? formatDate(a.created_at) : ''}</p>
+                        <p className="text-sm font-medium text-gray-900">{a.title || 'Announcement'}</p>
+                        <p className="text-sm text-red-600 mt-1 line-clamp-4 whitespace-pre-wrap">{a.message}</p>
+                        <p className="text-[10px] text-gray-500 mt-2">{a.created_at ? formatDate(a.created_at) : ''}</p>
                       </li>
                     ))}
                   </ul>
@@ -905,7 +924,7 @@ const Dashboard = () => {
                       { value: '', label: 'Select Flat (Optional)' },
                       ...modalFlats.map((f) => ({
                         value: f.id,
-                        label: `${f.flat_number} - ${f.owner_name || 'No owner'}`,
+                        label: `${f.flat_number} - ${f.resident_name || f.owner_name || 'No owner'}`,
                       })),
                     ]}
                   />
