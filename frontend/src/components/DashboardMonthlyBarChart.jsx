@@ -46,6 +46,8 @@ export default function DashboardMonthlyBarChart({
   items = [],
   incomeColor = '#22c55e',
   expenseColor = '#ef4444',
+  /** Match dashboard chat column height (flex parent should set lg:h-[420px]) */
+  fillHeight = false,
 }) {
   const { maxValue, bars, yBase } = useMemo(() => {
     const rawMax = items.reduce((m, it) => Math.max(m, Number(it.income || 0), Number(it.expense || 0)), 0) || 0;
@@ -80,17 +82,25 @@ export default function DashboardMonthlyBarChart({
     return { maxValue: max, bars: list, yBase: base };
   }, [items]);
 
+  const cardShell = fillHeight
+    ? 'bg-white rounded-xl border border-gray-200/90 p-4 shadow-sm flex flex-col h-full min-h-0 overflow-hidden'
+    : 'bg-white rounded-xl border border-gray-200/90 p-4 shadow-sm';
+
   if (items.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200/90 p-4 min-h-[200px] flex items-center justify-center text-sm text-gray-400">
+      <div
+        className={`${cardShell} flex text-sm text-gray-400 ${
+          fillHeight ? 'flex-1 min-h-[240px] items-center justify-center' : 'min-h-[200px] items-center justify-center'
+        }`}
+      >
         No data for selected period
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200/90 p-4 shadow-sm">
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+    <div className={cardShell}>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2 shrink-0">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Monthly Income vs Expenses</h3>
           <p className="text-xs text-gray-500">Bar chart with grid lines — green = income, red = expenses</p>
@@ -107,7 +117,8 @@ export default function DashboardMonthlyBarChart({
         </div>
       </div>
 
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Monthly income and expenses bar chart">
+      <div className={fillHeight ? 'flex-1 min-h-0 flex flex-col justify-end' : ''}>
+      <svg viewBox={`0 0 ${W} ${H}`} className={`w-full ${fillHeight ? 'max-h-[220px] min-h-[160px] shrink-0' : 'h-auto'}`} role="img" aria-label="Monthly income and expenses bar chart">
         {/* Horizontal grid lines + Y-axis amount labels (dynamic from maxValue) */}
         {[0, 0.25, 0.5, 0.75, 1].map((t) => {
           const y = PAD_T + (H - PAD_T - PAD_B) * (1 - t);
@@ -191,10 +202,11 @@ export default function DashboardMonthlyBarChart({
         ))}
       </svg>
 
-      <div className="mt-2 text-[11px] text-gray-500">
+      <div className="mt-2 text-[11px] text-gray-500 shrink-0">
         <span>
           Y-axis: 0 – {formatCurrency(maxValue)} (scales with data)
         </span>
+      </div>
       </div>
     </div>
   );

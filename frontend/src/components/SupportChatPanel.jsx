@@ -43,6 +43,8 @@ export default function SupportChatPanel({
   const scrollRef = useRef(null);
   const supportPopoverRef = useRef(null);
   const broadcastRef = useRef(null);
+  /** If false, user scrolled up to read history — do not jump to bottom on poll/new messages */
+  const stickToBottomRef = useRef(true);
 
   useEffect(() => {
     if (!showSupportInfo) return undefined;
@@ -55,16 +57,28 @@ export default function SupportChatPanel({
     return () => document.removeEventListener('mousedown', close);
   }, [showSupportInfo]);
 
-  /** Scroll only inside the chat box — never use scrollIntoView (it scrolls the whole page). */
-  const scrollChatToBottom = useCallback((smooth) => {
+  const scrollToBottomIfStuck = useCallback((smooth) => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || !stickToBottomRef.current) return;
+    const targetTop = el.scrollHeight;
     if (smooth) {
-      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+      el.scrollTo({ top: targetTop, behavior: 'smooth' });
     } else {
-      el.scrollTop = el.scrollHeight;
+      el.scrollTop = targetTop;
     }
   }, []);
+
+  const onMessagesScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = gap < 100;
+  }, []);
+
+  /** New apartment/thread: start pinned to latest messages */
+  useEffect(() => {
+    stickToBottomRef.current = true;
+  }, [apartmentId]);
 
   const loadMessages = useCallback(async (tid) => {
     const { data, error } = await supabase
@@ -187,12 +201,14 @@ export default function SupportChatPanel({
     return () => clearInterval(id);
   }, [threadId, loadMessages]);
 
+  /** Only auto-scroll when the user is already at the bottom (or initial load). Reading history upward stays put. */
   useEffect(() => {
+    if (loading) return;
     const id = requestAnimationFrame(() => {
-      scrollChatToBottom(false);
+      scrollToBottomIfStuck(false);
     });
     return () => cancelAnimationFrame(id);
-  }, [messages, scrollChatToBottom]);
+  }, [messages, loading, scrollToBottomIfStuck]);
 
   /** Mark read when thread opens + while chat is open (clears bell for new messages) */
   useEffect(() => {
@@ -236,6 +252,7 @@ export default function SupportChatPanel({
         .single();
       if (error) throw error;
       if (data) {
+        stickToBottomRef.current = true;
         setMessages((prev) => mergeMessagesById(prev, [data]));
         broadcastRef.current?.send({
           type: 'broadcast',
@@ -257,7 +274,9 @@ export default function SupportChatPanel({
 
   const shellClassName = [
     'bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col min-h-0 overflow-hidden',
-    dashboardCompact ? 'h-[380px]' : 'h-[min(440px,75vh)] max-h-[520px]',
+    dashboardCompact
+      ? 'h-full min-h-[360px] lg:min-h-0'
+      : 'h-[min(440px,75vh)] max-h-[520px]',
   ].join(' ');
 
   return (
@@ -321,7 +340,9 @@ export default function SupportChatPanel({
 
       <div
         ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-2 space-y-2 bg-slate-50/80"
+        onScroll={onMessagesScroll}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain scroll-smooth px-3 py-2 space-y-2 bg-slate-50/80"
+        style={{ WebkitOverflowScrolling: 'touch' }}
       >
         {loading ? (
           <div className="flex items-center justify-center h-40 text-gray-400">
