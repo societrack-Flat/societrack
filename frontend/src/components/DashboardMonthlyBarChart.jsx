@@ -117,8 +117,9 @@ export default function DashboardMonthlyBarChart({
         </div>
       </div>
 
-      <div className={fillHeight ? 'flex-1 min-h-0 flex flex-col justify-end' : ''}>
-      <svg viewBox={`0 0 ${W} ${H}`} className={`w-full ${fillHeight ? 'max-h-[220px] min-h-[160px] shrink-0' : 'h-auto'}`} role="img" aria-label="Monthly income and expenses bar chart">
+      {/* justify-start: avoid justify-end leaving a white band between subtitle and chart (fillHeight + lg column) */}
+      <div className={fillHeight ? 'flex-1 min-h-0 flex flex-col justify-start' : ''}>
+      <svg viewBox={`0 0 ${W} ${H}`} className={`w-full block ${fillHeight ? 'max-h-[220px] shrink-0' : 'h-auto'}`} role="img" aria-label="Monthly income and expenses bar chart">
         {/* Horizontal grid lines + Y-axis amount labels (dynamic from maxValue) */}
         {[0, 0.25, 0.5, 0.75, 1].map((t) => {
           const y = PAD_T + (H - PAD_T - PAD_B) * (1 - t);
@@ -202,7 +203,7 @@ export default function DashboardMonthlyBarChart({
         ))}
       </svg>
 
-      <div className="mt-2 text-[11px] text-gray-500 shrink-0">
+      <div className={`text-[11px] text-gray-500 shrink-0 ${fillHeight ? 'mt-1.5' : 'mt-2'}`}>
         <span>
           Y-axis: 0 – {formatCurrency(maxValue)} (scales with data)
         </span>
