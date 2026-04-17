@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, Search, CheckCircle, AlertCircle, IndianRupee, Users, DoorOpen, Calendar, Download } from 'lucide-react';
+import { Clock, Search, CheckCircle, AlertCircle, IndianRupee, Users, DoorOpen, Download } from 'lucide-react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { useAuth } from '../../context/AuthContext';
@@ -8,8 +8,6 @@ import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
 import Button from '../../components/Button';
 import Card from '../../components/Card';
-import Modal from '../../components/Modal';
-import InputField from '../../components/InputField';
 import EmptyState from '../../components/EmptyState';
 import toast from 'react-hot-toast';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
@@ -22,14 +20,6 @@ const Maintenance = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [searchTerm, setSearchTerm] = useState('');
-  const [showPayModal, setShowPayModal] = useState(false);
-  const [selectedMaintenance, setSelectedMaintenance] = useState(null);
-  const [paymentData, setPaymentData] = useState({
-    paid_amount: '',
-    payment_mode: 'cash',
-    reference_number: '',
-    paid_date: new Date().toISOString().split('T')[0],
-  });
   const [stats, setStats] = useState({
     totalFlats: 0,
     paidCount: 0,
@@ -153,91 +143,6 @@ const Maintenance = () => {
     } catch (error) {
       console.error('Error fetching maintenance:', error);
       toast.error('Failed to load maintenance data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleMarkAsPaid = (item) => {
-    setSelectedMaintenance(item);
-    setPaymentData({
-      paid_amount: item.amount?.toString() || '',
-      payment_mode: 'cash',
-      reference_number: '',
-      paid_date: new Date().toISOString().split('T')[0],
-    });
-    setShowPayModal(true);
-  };
-
-  const handlePaymentSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!paymentData.paid_amount || parseFloat(paymentData.paid_amount) <= 0) {
-      toast.error('Please enter a valid amount');
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      const maintenanceData = {
-        apartment_id: apartment.id,
-        flat_id: selectedMaintenance.flat_id,
-        month: selectedMonth,
-        year: selectedYear,
-        amount: parseFloat(paymentData.paid_amount),
-        paid_amount: parseFloat(paymentData.paid_amount),
-        status: 'paid',
-        paid_date: paymentData.paid_date,
-        payment_mode: paymentData.payment_mode,
-        reference_number: paymentData.reference_number || null,
-      };
-
-      if (selectedMaintenance.id) {
-        // Update existing record
-        const { error } = await supabase
-          .from('maintenance')
-          .update(maintenanceData)
-          .eq('id', selectedMaintenance.id);
-
-        if (error) throw error;
-      } else {
-        // Insert new record
-        const { error } = await supabase
-          .from('maintenance')
-          .insert(maintenanceData);
-
-        if (error) throw error;
-      }
-
-      // Also add to income
-      await supabase.from('income').insert({
-        apartment_id: apartment.id,
-        flat_id: selectedMaintenance.flat_id,
-        amount: parseFloat(paymentData.paid_amount),
-        category: 'Maintenance',
-        description: `Maintenance for ${getMonthName(selectedMonth)} ${selectedYear}`,
-        date: paymentData.paid_date,
-        payment_mode: paymentData.payment_mode,
-        reference_number: paymentData.reference_number || null,
-        created_by: userProfile.id,
-      });
-
-      const paidNum = parseFloat(paymentData.paid_amount);
-      const dueNum = Number(selectedMaintenance.amount ?? 0);
-      const flatRow = flats.find((f) => f.id === selectedMaintenance.flat_id);
-      if (flatRow && paidNum >= dueNum - 0.01) {
-        await supabase.from('flats').update({ pending_maintenance: 0 }).eq('id', selectedMaintenance.flat_id);
-      }
-
-      toast.success('Payment recorded successfully');
-      setShowPayModal(false);
-      setSelectedMaintenance(null);
-      fetchFlats();
-      fetchMaintenance();
-    } catch (error) {
-      console.error('Error recording payment:', error);
-      toast.error('Failed to record payment');
     } finally {
       setLoading(false);
     }
@@ -570,7 +475,6 @@ const Maintenance = () => {
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Status</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Amount</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Paid Date</th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-900">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -613,19 +517,6 @@ const Maintenance = () => {
                         <td className="py-3 px-4 text-sm text-gray-600">
                           {item.paid_date ? formatDate(item.paid_date) : '-'}
                         </td>
-                        <td className="py-3 px-4 text-right">
-                          {item.status === 'pending' ? (
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              onClick={() => handleMarkAsPaid(item)}
-                            >
-                              Mark Paid
-                            </Button>
-                          ) : (
-                            <span className="text-sm text-green-600 font-medium">✓ Collected</span>
-                          )}
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -636,81 +527,6 @@ const Maintenance = () => {
         </main>
       </div>
 
-      {/* Payment Modal */}
-      <Modal
-        isOpen={showPayModal}
-        onClose={() => setShowPayModal(false)}
-        title="Record Payment"
-        subtitle={`Mark maintenance as paid for Flat ${selectedMaintenance?.flats?.flat_number}`}
-      >
-        <form onSubmit={handlePaymentSubmit} className="space-y-5">
-          <InputField
-            label="Amount"
-            type="number"
-            name="paid_amount"
-            placeholder="0.00"
-            value={paymentData.paid_amount}
-            onChange={(e) => setPaymentData({ ...paymentData, paid_amount: e.target.value })}
-            icon={IndianRupee}
-            required
-            min="0"
-            step="0.01"
-          />
-
-          <InputField
-            label="Payment Date"
-            type="date"
-            name="paid_date"
-            value={paymentData.paid_date}
-            onChange={(e) => setPaymentData({ ...paymentData, paid_date: e.target.value })}
-            icon={Calendar}
-            required
-          />
-
-          <InputField
-            label="Payment Mode"
-            type="select"
-            name="payment_mode"
-            value={paymentData.payment_mode}
-            onChange={(e) => setPaymentData({ ...paymentData, payment_mode: e.target.value })}
-            options={[
-              { value: 'cash', label: 'Cash' },
-              { value: 'upi', label: 'UPI' },
-              { value: 'bank_transfer', label: 'Bank Transfer' },
-              { value: 'cheque', label: 'Cheque' },
-              { value: 'online', label: 'Online' },
-            ]}
-          />
-
-          <InputField
-            label="Reference Number"
-            type="text"
-            name="reference_number"
-            placeholder="Transaction ID / Receipt No"
-            value={paymentData.reference_number}
-            onChange={(e) => setPaymentData({ ...paymentData, reference_number: e.target.value })}
-          />
-
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowPayModal(false)}
-              fullWidth
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              loading={loading}
-              fullWidth
-            >
-              Record Payment
-            </Button>
-          </div>
-        </form>
-      </Modal>
     </div>
   );
 };

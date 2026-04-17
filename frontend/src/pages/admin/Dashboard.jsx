@@ -825,11 +825,11 @@ const Dashboard = () => {
               </div>
 
               <div className="flex flex-col lg:flex-row gap-4 mb-4 items-stretch">
-                <div className="w-full lg:w-1/2 min-w-0">
+                <div className="w-full lg:w-1/2 min-w-0 flex flex-col">
                   <DashboardMonthlyBarChart items={barChartItems} incomeColor={DASH_GREEN} />
                 </div>
-                <div className="w-full lg:w-1/2 min-w-0 flex flex-col">
-                  <SupportChatPanel variant="admin" apartmentId={activeApartmentId} />
+                <div className="w-full lg:w-1/2 min-w-0 flex flex-col min-h-0">
+                  <SupportChatPanel variant="admin" apartmentId={activeApartmentId} dashboardCompact />
                 </div>
               </div>
 

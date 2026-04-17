@@ -5,7 +5,7 @@ import { mergeMessagesById, markSupportThreadRead } from '../lib/supportChat';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
-const SUPPORT_PHONE = import.meta.env.VITE_SUPPORT_PHONE || '+91-00000-00000';
+const SUPPORT_PHONE = import.meta.env.VITE_SUPPORT_PHONE || '+91 8142112121';
 const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL || 'support@societrack.com';
 
 function labelForMessage(msg, currentUserId) {
@@ -30,6 +30,8 @@ export default function SupportChatPanel({
   apartmentId,
   onApartmentChange,
   apartmentOptions = [],
+  /** Fixed height to align with dashboard chart column; internal message list scrolls */
+  dashboardCompact = false,
 }) {
   const { userProfile } = useAuth();
   const [threadId, setThreadId] = useState(null);
@@ -253,13 +255,20 @@ export default function SupportChatPanel({
 
   const isSuper = variant === 'superadmin';
 
+  const shellClassName = [
+    'bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col min-h-0 overflow-hidden',
+    dashboardCompact ? 'h-[380px]' : 'h-[min(440px,75vh)] max-h-[520px]',
+  ].join(' ');
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col min-h-[320px] max-h-[min(520px,70vh)]">
-      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-100">
+    <div className={shellClassName}>
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-100 shrink-0">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-gray-900">Support chat</h3>
+          <h3 className="text-sm font-semibold text-gray-900">
+            {isSuper ? 'Support inbox' : 'Chat with superadmin'}
+          </h3>
           <p className="text-[11px] text-gray-500 truncate">
-            {isSuper ? 'Message society admins (per apartment)' : 'Chat with Societrack Support'}
+            {isSuper ? 'Message society admins (per apartment)' : 'Societrack platform support'}
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0 relative" ref={supportPopoverRef}>
@@ -294,7 +303,7 @@ export default function SupportChatPanel({
       </div>
 
       {isSuper && Array.isArray(apartmentOptions) && apartmentOptions.length > 0 && typeof onApartmentChange === 'function' && (
-        <div className="px-3 py-2 border-b border-gray-100">
+        <div className="px-3 py-2 border-b border-gray-100 shrink-0">
           <label className="text-[11px] text-gray-500 block mb-1">Society admin</label>
           <select
             className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
@@ -312,7 +321,7 @@ export default function SupportChatPanel({
 
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-3 py-2 space-y-2 bg-slate-50/80 min-h-[200px]"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-2 space-y-2 bg-slate-50/80"
       >
         {loading ? (
           <div className="flex items-center justify-center h-40 text-gray-400">
@@ -357,7 +366,7 @@ export default function SupportChatPanel({
         )}
       </div>
 
-      <form onSubmit={handleSend} className="p-2 border-t border-gray-100 flex gap-2">
+      <form onSubmit={handleSend} className="p-2 border-t border-gray-100 flex gap-2 shrink-0">
         <input
           type="text"
           value={input}

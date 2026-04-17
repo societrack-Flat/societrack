@@ -61,7 +61,7 @@ export const initiatePayment = ({
       currency: 'INR',
       name: 'Societrack',
       description: `${plan.name} Plan - Monthly Subscription`,
-      image: '/favicon.svg',
+      image: '/societrack-logo.png',
       handler: function (response) {
         const paymentData = {
           razorpay_payment_id: response.razorpay_payment_id,
