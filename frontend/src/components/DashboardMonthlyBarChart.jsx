@@ -117,9 +117,20 @@ export default function DashboardMonthlyBarChart({
         </div>
       </div>
 
-      {/* justify-start: avoid justify-end leaving a white band between subtitle and chart (fillHeight + lg column) */}
-      <div className={fillHeight ? 'flex-1 min-h-0 flex flex-col justify-start' : ''}>
-      <svg viewBox={`0 0 ${W} ${H}`} className={`w-full block ${fillHeight ? 'max-h-[220px] shrink-0' : 'h-auto'}`} role="img" aria-label="Monthly income and expenses bar chart">
+      {/* fillHeight: chart flex-1 fills space between header and footer; footer at bottom — no white band below Y-axis line */}
+      <div
+        className={
+          fillHeight ? 'flex-1 min-h-0 w-full relative flex flex-col' : 'flex flex-col'
+        }
+      >
+        <div className={fillHeight ? 'flex-1 min-h-0 w-full relative' : ''}>
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            className={`w-full block ${fillHeight ? 'absolute inset-0 h-full max-h-none' : 'h-auto'}`}
+            preserveAspectRatio={fillHeight ? 'xMidYMid meet' : undefined}
+            role="img"
+            aria-label="Monthly income and expenses bar chart"
+          >
         {/* Horizontal grid lines + Y-axis amount labels (dynamic from maxValue) */}
         {[0, 0.25, 0.5, 0.75, 1].map((t) => {
           const y = PAD_T + (H - PAD_T - PAD_B) * (1 - t);
@@ -201,13 +212,14 @@ export default function DashboardMonthlyBarChart({
             {monthLabel(b.ym)}
           </text>
         ))}
-      </svg>
+          </svg>
+        </div>
 
-      <div className={`text-[11px] text-gray-500 shrink-0 ${fillHeight ? 'mt-1.5' : 'mt-2'}`}>
-        <span>
-          Y-axis: 0 – {formatCurrency(maxValue)} (scales with data)
-        </span>
-      </div>
+        <div className={`text-[11px] text-gray-500 shrink-0 ${fillHeight ? 'mt-2 pt-0' : 'mt-2'}`}>
+          <span>
+            Y-axis: 0 – {formatCurrency(maxValue)} (scales with data)
+          </span>
+        </div>
       </div>
     </div>
   );
