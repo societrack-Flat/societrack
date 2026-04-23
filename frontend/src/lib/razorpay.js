@@ -100,14 +100,21 @@ export const initiatePayment = ({
           }
         }
 
+        const amt = Number(order.amount);
+        if (!Number.isFinite(amt) || amt <= 0) {
+          throw new Error('Invalid order amount from server');
+        }
+
+        const logo = typeof window !== 'undefined' ? `${window.location.origin}/societrack-logo.png` : null;
+
         const options = {
           key,
           order_id: order.order_id,
-          amount: order.amount,
-          currency: order.currency || 'INR',
+          amount: amt,
+          currency: (order.currency || 'INR').toUpperCase(),
           name: 'Societrack',
           description: `${plan.name} — monthly access`,
-          image: '/societrack-logo.png',
+          ...(logo ? { image: logo } : {}),
           handler: function (response) {
             const paymentData = {
               razorpay_payment_id: response.razorpay_payment_id,
@@ -152,12 +159,25 @@ export const initiatePayment = ({
         } catch {
           /* ignore */
         }
-        try {
-          razorpay.open();
-        } catch (e) {
-          onFailure?.(e instanceof Error ? e : new Error('Could not open Razorpay checkout'));
-          throw e;
-        }
+        // Open on the next turn + after two animation frames so React + Supabase token refresh
+        // cannot unmount/flatten the same tick (fixes blank/stuck v2 checkout when refresh_token runs).
+        const open = () => {
+          try {
+            razorpay.open();
+          } catch (e) {
+            onFailure?.(e instanceof Error ? e : new Error('Could not open Razorpay checkout'));
+            throw e;
+          }
+        };
+        window.setTimeout(() => {
+          if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => {
+              window.requestAnimationFrame(open);
+            });
+          } else {
+            open();
+          }
+        }, 0);
       } catch (error) {
         onFailure?.(error);
         reject(error);

@@ -225,8 +225,9 @@ export const AuthProvider = ({ children }) => {
         await loadUserProfile(session.user.id);
         setLoading(false);
       } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-        // Just update the user object silently — no profile reload needed
-        setUser(session.user);
+        // Do NOT setUser() here. The Supabase client already has the new session; getSession() returns
+        // a fresh token. Calling setUser would re-render the whole app, which can destroy or blank
+        // Razorpay Standard Checkout v2 (many /checkout-static-next chunk loads) mid-flow. Same user id.
       } else if (event === 'SIGNED_OUT') {
         loadedUserIdRef.current = null;
         profileLoadLockRef.current = null;
