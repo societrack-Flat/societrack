@@ -68,5 +68,33 @@ async def fetch_payment(payment_id: str) -> dict:
         return r.json()
 
 
+async def fetch_order(order_id: str) -> dict:
+    _require_keys()
+    if not order_id:
+        raise ValueError("order_id is required")
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(
+            f"https://api.razorpay.com/v1/orders/{order_id}",
+            headers=_auth_header(),
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+def verify_webhook_signature(body: bytes, signature: str) -> bool:
+    """Razorpay: HMAC SHA256 of raw body; compare to X-Razorpay-Signature (hex, optional sha256= prefix)."""
+    if not body or not signature or not settings.razorpay_webhook_secret:
+        return False
+    sig = signature.strip()
+    if sig.lower().startswith("sha256="):
+        sig = sig.split("=", 1)[-1]
+    expected = hmac.new(
+        settings.razorpay_webhook_secret.encode("utf-8"),
+        body,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, sig)
+
+
 def unique_receipt() -> str:
     return f"st{int(time.time() * 1000)}"[:40]

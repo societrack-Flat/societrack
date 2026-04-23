@@ -21,7 +21,34 @@ const PLANS = {
 
 let razorpayScriptPromise = null;
 
-function loadRazorpayScript() {
+/** `Subscribe` → `/pay-razorpay` handoff (JSON: order, plan, prefill; no functions). */
+export const RAZORPAY_CHECKOUT_SESSION_KEY = 'societrack_rzp_checkout_v1';
+
+/**
+ * Defer open() past React commit + token refresh; avoids blank Razorpay Checkout v2 when refresh_token runs.
+ * Same pattern as setTimeout(0) + double requestAnimationFrame.
+ */
+export function openRazorpayDeferred(razorpay, onOpenError) {
+  const open = () => {
+    try {
+      razorpay.open();
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error('Could not open Razorpay checkout');
+      onOpenError?.(err);
+    }
+  };
+  window.setTimeout(() => {
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(open);
+      });
+    } else {
+      open();
+    }
+  }, 0);
+}
+
+export function loadRazorpayScript() {
   if (typeof window === 'undefined') {
     return Promise.reject(new Error('Razorpay is only available in the browser'));
   }
@@ -159,25 +186,10 @@ export const initiatePayment = ({
         } catch {
           /* ignore */
         }
-        // Open on the next turn + after two animation frames so React + Supabase token refresh
-        // cannot unmount/flatten the same tick (fixes blank/stuck v2 checkout when refresh_token runs).
-        const open = () => {
-          try {
-            razorpay.open();
-          } catch (e) {
-            onFailure?.(e instanceof Error ? e : new Error('Could not open Razorpay checkout'));
-            throw e;
-          }
-        };
-        window.setTimeout(() => {
-          if (typeof window.requestAnimationFrame === 'function') {
-            window.requestAnimationFrame(() => {
-              window.requestAnimationFrame(open);
-            });
-          } else {
-            open();
-          }
-        }, 0);
+        openRazorpayDeferred(razorpay, (err) => {
+          onFailure?.(err);
+          reject(err);
+        });
       } catch (error) {
         onFailure?.(error);
         reject(error);
@@ -204,5 +216,6 @@ export default {
   initiatePayment,
   createSubscription,
   verifyPayment,
+  openRazorpayDeferred,
   SOCIETRACK_PLAN_ID,
 };

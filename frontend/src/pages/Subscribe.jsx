@@ -2,7 +2,8 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, ArrowLeft, CreditCard, Shield, Zap } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getAllPlans, initiatePayment, SOCIETRACK_PLAN_ID } from '../lib/razorpay';
+import { paymentsApi } from '../lib/apiClient';
+import { getAllPlans, getPlanDetails, SOCIETRACK_PLAN_ID, RAZORPAY_CHECKOUT_SESSION_KEY } from '../lib/razorpay';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import toast from 'react-hot-toast';
@@ -12,7 +13,7 @@ const Subscribe = () => {
   const [orderLoading, setOrderLoading] = useState(false);
   /** true from click until pay/dismiss/verify-finish so the button stays inert in the gap after order + during Razorpay */
   const [payFlow, setPayFlow] = useState(false);
-  const { apartment, userProfile, updateSubscription, checkSubscription } = useAuth();
+  const { apartment, userProfile, checkSubscription } = useAuth();
   const navigate = useNavigate();
   const payLockRef = useRef(false);
 
@@ -32,39 +33,43 @@ const Subscribe = () => {
     setOrderLoading(true);
 
     try {
-      await initiatePayment({
-        planId: SOCIETRACK_PLAN_ID,
-        apartmentId: apartment.id,
-        apartmentName: apartment.name,
-        userEmail: userProfile.email,
-        userName: userProfile.name,
-        userPhone: userProfile.phone,
-        // As soon as the order exists, drop spinner (avoids “stuck loading” if open() lags; checkout is its own UI).
-        onOrderReady: () => setOrderLoading(false),
-        onCheckoutOpen: () => setOrderLoading(false),
-        onSuccess: async (paymentData) => {
-          setOrderLoading(true);
-          try {
-            const result = await updateSubscription(SOCIETRACK_PLAN_ID, paymentData);
-            if (result.success) {
-              toast.success('Payment successful! Your plan is active for 30 days.');
-              navigate('/admin/dashboard');
-            } else {
-              toast.error(result.error || 'Could not confirm payment with server');
-            }
-          } finally {
-            setOrderLoading(false);
-            setPayFlow(false);
-            payLockRef.current = false;
-          }
-        },
-        onFailure: (error) => {
-          toast.error(error.message || 'Payment failed');
-          setOrderLoading(false);
-          setPayFlow(false);
-          payLockRef.current = false;
-        },
+      const order = await paymentsApi.createRazorpayOrder({
+        plan_id: SOCIETRACK_PLAN_ID,
+        apartment_id: apartment.id,
       });
+      const key = order.key_id;
+      if (!key || !order.order_id) {
+        throw new Error('Invalid order response from server');
+      }
+      const amt = Number(order.amount);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        throw new Error('Invalid order amount from server');
+      }
+      const plan = getPlanDetails(SOCIETRACK_PLAN_ID);
+      if (Number(amt) !== Number(plan.amount)) {
+        throw new Error('Order amount does not match plan');
+      }
+
+      setOrderLoading(false);
+      sessionStorage.setItem(
+        RAZORPAY_CHECKOUT_SESSION_KEY,
+        JSON.stringify({
+          key_id: key,
+          order_id: order.order_id,
+          amount: amt,
+          currency: (order.currency || 'INR').toUpperCase(),
+          plan_id: SOCIETRACK_PLAN_ID,
+          planAmountPaise: plan.amount,
+          apartment_id: apartment.id,
+          apartment_name: apartment.name,
+          userName: userProfile.name,
+          userEmail: userProfile.email,
+          userPhone: userProfile.phone,
+        }),
+      );
+      navigate('/pay-razorpay');
+      setPayFlow(false);
+      payLockRef.current = false;
     } catch (error) {
       toast.error(error.message || 'Something went wrong');
       setOrderLoading(false);

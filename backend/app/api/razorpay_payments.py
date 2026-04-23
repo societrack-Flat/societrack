@@ -1,14 +1,22 @@
+import json
 import logging
 import uuid
 from datetime import date, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.services.auth import require_user
-from app.services.razorpay_client import create_order, fetch_payment, unique_receipt, verify_payment_signature
+from app.services.razorpay_client import (
+    create_order,
+    fetch_order,
+    fetch_payment,
+    unique_receipt,
+    verify_payment_signature,
+    verify_webhook_signature,
+)
 from app.services.supabase_rest import supabase_rest
 from app.subscription_plans import PLAN_ID, get_plan
 
@@ -26,6 +34,10 @@ def _user_id(claims: dict) -> str:
 
 def _key_configured() -> bool:
     return bool(settings.razorpay_key_id and settings.razorpay_key_secret)
+
+
+def _webhook_secret_configured() -> bool:
+    return bool(settings.razorpay_webhook_secret)
 
 
 class CreateOrderIn(BaseModel):
@@ -65,6 +77,83 @@ async def _load_user(user_id: str) -> dict[str, Any] | None:
     except Exception as e:
         log.exception("load user: %s", e)
         raise HTTPException(status_code=503, detail="Database unavailable") from e
+
+
+def _order_notes(notes: Any) -> dict[str, str]:
+    if not isinstance(notes, dict):
+        return {}
+    return {str(k): str(v) for k, v in notes.items() if v is not None}
+
+
+async def _apply_pro_subscription(
+    apartment_id: str,
+    plan_id: str,
+    payment_id: str,
+    amount_paise: int,
+) -> dict:
+    """
+    After Razorpay + HMAC (and optional admin) checks: update apartment.
+    Idempotent: same pay_id twice is a no-op.
+    """
+    try:
+        plan = get_plan(plan_id)
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid plan: {plan_id}") from e
+
+    if int(amount_paise) != int(plan["amount_paise"]):
+        raise HTTPException(status_code=400, detail="Amount mismatch")
+
+    sb = supabase_rest()
+    try:
+        rows = await sb.get(
+            "apartments",
+            params={"id": f"eq.{apartment_id}", "select": "id,last_razorpay_payment_id", "limit": 1},
+        )
+    except Exception as e:
+        log.exception("Supabase get apartment: %s", e)
+        raise HTTPException(status_code=503, detail="Database unavailable") from e
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="Apartment not found")
+    if str(rows[0].get("last_razorpay_payment_id") or "") == str(payment_id):
+        return {
+            "success": True,
+            "duplicate": True,
+            "apartment": rows[0],
+            "razorpay_payment_id": payment_id,
+        }
+
+    period_end: date = date.today() + timedelta(days=30)
+    try:
+        updated = await sb.patch(
+            "apartments",
+            params={"id": f"eq.{apartment_id}"},
+            json={
+                "plan_name": "societrack_pro",
+                "subscription_status": "active",
+                "flat_limit": plan["flat_limit"],
+                "monthly_price": plan["monthly_rupees"],
+                "subscription_end_date": period_end.isoformat(),
+                "last_razorpay_payment_id": str(payment_id),
+            },
+        )
+    except Exception as e:
+        log.exception("Supabase update apartment: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail="Could not update subscription. Contact support with your payment id.",
+        ) from e
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Apartment not found")
+
+    row = updated[0] if isinstance(updated, list) else updated
+    return {
+        "success": True,
+        "duplicate": False,
+        "apartment": row,
+        "razorpay_payment_id": payment_id,
+    }
 
 
 @router.post("/create-order", response_model=CreateOrderOut)
@@ -125,7 +214,7 @@ async def verify_and_activate(body: VerifyIn, claims: dict = Depends(require_use
         raise HTTPException(status_code=400, detail="Invalid apartment_id") from e
 
     try:
-        plan = get_plan(body.plan_id)
+        get_plan(body.plan_id)
     except KeyError as e:
         raise HTTPException(status_code=400, detail=f"Invalid plan: {body.plan_id}") from e
 
@@ -147,41 +236,109 @@ async def verify_and_activate(body: VerifyIn, claims: dict = Depends(require_use
     if str(pay.get("order_id") or "") != str(body.razorpay_order_id):
         raise HTTPException(status_code=400, detail="Order id mismatch on payment record")
 
+    try:
+        order = await fetch_order(body.razorpay_order_id)
+    except Exception as e:
+        log.exception("Razorpay fetch order: %s", e)
+        raise HTTPException(status_code=502, detail="Could not load order from Razorpay") from e
+
+    notes = _order_notes(order.get("notes"))
+    if str(notes.get("apartment_id") or "") != str(body.apartment_id):
+        raise HTTPException(status_code=400, detail="This payment order is not for this society")
+    if str(notes.get("plan_id") or "") != str(body.plan_id):
+        raise HTTPException(status_code=400, detail="Plan does not match this order")
+
     amount_paise = int(pay.get("amount") or 0)
-    if amount_paise != plan["amount_paise"]:
-        raise HTTPException(status_code=400, detail="Amount mismatch")
 
     user_id = _user_id(claims)
     user_row = await _load_user(user_id)
     if not _is_apartment_admin(user_row, body.apartment_id):
         raise HTTPException(status_code=403, detail="Not allowed to activate subscription for this apartment")
 
-    period_end: date = date.today() + timedelta(days=30)
-    try:
-        sb = supabase_rest()
-        updated = await sb.patch(
-            "apartments",
-            params={"id": f"eq.{body.apartment_id}"},
-            json={
-                "plan_name": "societrack_pro",
-                "subscription_status": "active",
-                "flat_limit": plan["flat_limit"],
-                "monthly_price": plan["monthly_rupees"],
-                "subscription_end_date": period_end.isoformat(),
-            },
+    return await _apply_pro_subscription(
+        body.apartment_id, body.plan_id, body.razorpay_payment_id, amount_paise
+    )
+
+
+@router.post("/webhook")
+async def razorpay_webhook(request: Request) -> dict:
+    """
+    Razorpay server-to-server. Register URL in the Razorpay dashboard (e.g. payment.captured).
+    Requires RAZORPAY_WEBHOOK_SECRET from the same Webhooks screen.
+    """
+    if not _key_configured():
+        raise HTTPException(
+            status_code=503, detail="Razorpay is not configured on the server. Add API keys in .env"
         )
-    except Exception as e:
-        log.exception("Supabase update apartment: %s", e)
+    if not _webhook_secret_configured():
+        log.warning("RAZORPAY_WEBHOOK_SECRET is not set; webhook is disabled")
         raise HTTPException(
             status_code=503,
-            detail="Could not update subscription. Contact support with your payment id.",
+            detail="RAZORPAY_WEBHOOK_SECRET is not set. Add the webhook secret from the Razorpay dashboard.",
+        )
+
+    body_bytes = await request.body()
+    header_sig = (request.headers.get("X-Razorpay-Signature") or "").strip()
+    if not header_sig or not verify_webhook_signature(body_bytes, header_sig):
+        log.warning("Razorpay webhook: bad signature")
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    try:
+        payload = json.loads(body_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=400, detail="Invalid JSON") from e
+
+    event = str(payload.get("event") or "")
+    if event not in ("payment.captured",):
+        return {"ok": True, "ignored": event or "no_event"}
+
+    try:
+        pay_entity = (payload.get("payload") or {}).get("payment", {}).get("entity", {}) or {}
+    except (TypeError, AttributeError):
+        return {"ok": True, "ignored": "shape"}
+
+    pay_id = str(pay_entity.get("id") or "")
+    order_id = str(pay_entity.get("order_id") or "")
+    if not pay_id or not order_id:
+        return {"ok": True, "ignored": "no_payment_or_order_id"}
+
+    try:
+        pay = await fetch_payment(pay_id)
+    except Exception as e:
+        log.exception("Razorpay webhook fetch payment: %s", e)
+        raise HTTPException(
+            status_code=503, detail="Could not load payment from Razorpay. Will retry if applicable."
         ) from e
 
-    if not updated:
-        raise HTTPException(status_code=404, detail="Apartment not found")
+    st = str(pay.get("status") or "").lower()
+    if st != "captured":
+        return {"ok": True, "ignored": f"status_{st}"}
 
-    return {
-        "success": True,
-        "apartment": updated[0] if isinstance(updated, list) else updated,
-        "razorpay_payment_id": body.razorpay_payment_id,
-    }
+    if str(pay.get("order_id") or "") != order_id:
+        return {"ok": True, "ignored": "order_mismatch"}
+
+    try:
+        order = await fetch_order(order_id)
+    except Exception as e:
+        log.exception("Razorpay webhook fetch order: %s", e)
+        raise HTTPException(
+            status_code=503, detail="Could not load order from Razorpay. Will retry if applicable."
+        ) from e
+
+    notes = _order_notes(order.get("notes"))
+    aid = str(notes.get("apartment_id") or "")
+    plan_id = str(notes.get("plan_id") or "")
+    if not aid or not plan_id:
+        log.warning("Razorpay webhook: order has no apartment_id / plan_id in notes")
+        return {"ok": True, "ignored": "order_notes_missing"}
+
+    try:
+        uuid.UUID(aid)
+    except ValueError:
+        return {"ok": True, "ignored": "invalid_apartment_uuid"}
+
+    amount_paise = int(pay.get("amount") or 0)
+    out = await _apply_pro_subscription(aid, plan_id, pay_id, amount_paise)
+    if out.get("duplicate"):
+        return {"ok": True, "duplicate": True, "razorpay_payment_id": pay_id}
+    return {"ok": True, "applied": True, "razorpay_payment_id": pay_id}

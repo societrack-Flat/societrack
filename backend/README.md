@@ -40,6 +40,21 @@ This API expects a Supabase JWT in:
 
 In the frontend, get it via `supabase.auth.getSession()` and pass the access token when calling API routes.
 
+## Razorpay (Pro subscription)
+
+1. Set in `.env` (Test mode: keys from **Razorpay Dashboard → API Keys**):
+
+   - `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`
+
+2. Run the Supabase migration that adds `apartments.last_razorpay_payment_id` (idempotency for verify + webhooks).
+
+3. **Optional but recommended:** In **Razorpay → Webhooks**, add your public API URL:  
+   `POST https://<your-backend>/api/payments/razorpay/webhook`  
+   Subscribe to **`payment.captured`**. Copy the **webhook secret** into `RAZORPAY_WEBHOOK_SECRET`.  
+   If the user closes the browser after paying, the webhook can still activate the plan.
+
+4. CORS: add your app origin to `CORS_ORIGINS` (comma-separated) so the browser can call `create-order` and `verify`.
+
 ## Endpoints (starter)
 
 - `GET /health`

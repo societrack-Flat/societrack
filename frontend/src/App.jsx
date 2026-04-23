@@ -11,6 +11,7 @@ import Signup from './pages/auth/Signup';
 import SuperAdminLogin from './pages/auth/SuperAdminLogin';
 import ResetPassword from './pages/auth/ResetPassword';
 import Subscribe from './pages/Subscribe';
+import PayRazorpay from './pages/PayRazorpay';
 
 // Admin Pages
 import AdminDashboard from './pages/admin/Dashboard';
@@ -120,7 +121,10 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   // Exception: /subscribe with an existing profile — do not unmount the page; Razorpay v2 can load
   // 100+ chunks and background auth refresh must not replace the whole tree (looks like "stuck loading").
   if (user && !profileLoaded && !bootstrapError) {
-    const isSubscribe = location.pathname === '/subscribe' || location.pathname.startsWith('/subscribe/');
+    const isSubscribe =
+      location.pathname === '/subscribe' ||
+      location.pathname.startsWith('/subscribe/') ||
+      location.pathname === '/pay-razorpay';
     if (!isSubscribe || !userProfile) {
       console.log('[ProtectedRoute] showing loading (user exists but profile not loaded)');
       return <LoadingScreen />;
@@ -172,7 +176,8 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
         path.startsWith('/admin/dashboard') ||
         path.startsWith('/admin/reports') ||
         path.startsWith('/admin/account') ||
-        path.startsWith('/subscribe');
+        path.startsWith('/subscribe') ||
+        path === '/pay-razorpay';
       if (!allowed) {
         return <Navigate to="/admin/dashboard" replace />;
       }
@@ -233,8 +238,9 @@ function App() {
       <Route path="/setup-superadmin" element={<Navigate to="/superadmin" replace />} />
       <Route path="/reset-password" element={<ResetPassword />} />
 
-      {/* Subscription */}
+      {/* Subscription — checkout opens on /pay-razorpay after create-order */}
       <Route path="/subscribe" element={<ProtectedRoute allowedRoles={['admin']}><Subscribe /></ProtectedRoute>} />
+      <Route path="/pay-razorpay" element={<ProtectedRoute allowedRoles={['admin']}><PayRazorpay /></ProtectedRoute>} />
 
       {/* Admin */}
       <Route path="/admin/dashboard"      element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />

@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
+    # Dashboard → Webhooks: secret shown when you create the endpoint (not the API key secret)
+    razorpay_webhook_secret: str = ""
     # Optional: Azure/cron can POST /api/maintenance/rollover-cron with this header
     maintenance_rollover_secret: str = ""
 
