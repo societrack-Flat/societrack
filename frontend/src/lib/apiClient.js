@@ -43,12 +43,18 @@ const apiCall = async (endpoint, options = {}) => {
     return await response.json();
   } catch (error) {
     console.error('API call error:', error);
-    
-    // If backend is not running, throw a more user-friendly error
-    if (error.message.includes('Failed to fetch') || error.message.includes('ERR_CONNECTION_REFUSED')) {
-      throw new Error('Backend server is not running. Please start the backend server first.');
+    const msg = String(error?.message || error);
+
+    if (msg.includes('Failed to fetch') || msg.includes('ERR_CONNECTION_REFUSED') || msg.includes('ERR_NAME_NOT_RESOLVED')) {
+      const isLocal = typeof API_BASE_URL === 'string' && (API_BASE_URL.includes('localhost') || API_BASE_URL.includes('127.0.0.1'));
+      if (isLocal) {
+        throw new Error('Backend server is not running. Start the API (e.g. port 8000) or set VITE_API_BASE_URL in .env for production.');
+      }
+      throw new Error(
+        `Cannot reach the API at ${API_BASE_URL}. Check VITE_API_BASE_URL (build-time), Azure app default domain, and that the app is running. If the host name is wrong, DNS will fail (ERR_NAME_NOT_RESOLVED).`,
+      );
     }
-    
+
     throw error;
   }
 };
