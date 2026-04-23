@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom';
 import { paymentsApi } from './apiClient';
 
 /** Must match backend `app/subscription_plans.PLAN_ID` */
@@ -89,10 +90,14 @@ export const initiatePayment = ({
           throw new Error('Invalid order response from server');
         }
 
-        try {
-          onOrderReady?.();
-        } catch {
-          /* ignore */
+        if (onOrderReady) {
+          try {
+            // Flush so the Pay button / route shell update before open(); avoids a stuck "Loading" UI
+            // and auth trees that re-render in the same tick as Razorpay.
+            flushSync(() => onOrderReady());
+          } catch {
+            /* ignore */
+          }
         }
 
         const options = {

@@ -70,3 +70,17 @@ body {
 .animation-delay-4000 {
   animation-delay: 4s;
 }
+
+/* Razorpay Standard Checkout (v2) loads in an iframe/overlay; keep it above our shell (e.g. z-50 modals) */
+#razorpay-container,
+#razorpay-modal,
+#razorpayCheckoutFrame,
+div[id^="razorpay-"],
+.razorpay-container,
+.razorpay-backdrop,
+iframe[title="Razorpay Checkout" i] {
+  z-index: 2147483000 !important;
+}
+iframe[src*="razorpay.com" i] {
+  z-index: 2147483000 !important;
+}

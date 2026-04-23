@@ -117,9 +117,14 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   }
   
   // If we have a user but profile is still loading and no bootstrap error, show loading
+  // Exception: /subscribe with an existing profile — do not unmount the page; Razorpay v2 can load
+  // 100+ chunks and background auth refresh must not replace the whole tree (looks like "stuck loading").
   if (user && !profileLoaded && !bootstrapError) {
-    console.log('[ProtectedRoute] showing loading (user exists but profile not loaded)');
-    return <LoadingScreen />;
+    const isSubscribe = location.pathname === '/subscribe' || location.pathname.startsWith('/subscribe/');
+    if (!isSubscribe || !userProfile) {
+      console.log('[ProtectedRoute] showing loading (user exists but profile not loaded)');
+      return <LoadingScreen />;
+    }
   }
 
   console.log('[ProtectedRoute] proceeding to route protection');
