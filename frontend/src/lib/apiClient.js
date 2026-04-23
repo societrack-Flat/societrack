@@ -163,4 +163,13 @@ export const paymentsApi = {
     }),
 };
 
-export default { authApi, apartmentApi, storageApi, paymentsApi };
+/** Month-end: move unpaid maintenance into flat arrears and clear maintenance rows for that month (server). */
+export const maintenanceApi = {
+  rollover: (body) =>
+    apiCall('/api/maintenance/rollover', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+};
+
+export default { authApi, apartmentApi, storageApi, paymentsApi, maintenanceApi };

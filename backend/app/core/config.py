@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
+    # Optional: Azure/cron can POST /api/maintenance/rollover-cron with this header
+    maintenance_rollover_secret: str = ""
 
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

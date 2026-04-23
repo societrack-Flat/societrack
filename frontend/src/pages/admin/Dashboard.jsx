@@ -24,8 +24,8 @@ import DashboardMonthlyBarChart from '../../components/DashboardMonthlyBarChart'
 import SupportChatPanel from '../../components/SupportChatPanel';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
 import { CALENDAR_MONTH_OPTIONS, getMaintenanceYearOptions } from '../../utils/maintenanceMonthOptions';
-import { pendingTotalForDashboardPeriod } from '../../utils/maintenancePending';
-import { upsertMaintenanceFromIncomeReceipt } from '../../lib/upsertMaintenanceFromIncome';
+import { dueFromFlat, pendingTotalForDashboardPeriod } from '../../utils/maintenancePending';
+import { applyMaintenanceIncomeAfterInsert } from '../../lib/applyMaintenanceIncome';
 
 /** Primary green — use consistently on admin dashboard (matches mock “Add Receipt”) */
 const DASH_GREEN = '#22c55e';
@@ -44,6 +44,7 @@ function defaultReceiptForm(todayStr) {
     flat_id: '',
     maintenanceYear: String(d.getFullYear()),
     maintenanceMonth: String(d.getMonth() + 1),
+    maintenancePaymentTarget: 'current',
     attachment: null,
   };
 }
@@ -186,6 +187,8 @@ const Dashboard = () => {
     openingBalance: 0,
     totalFlatPendingMaintenance: 0,
   });
+  /** Per-flat maintenance snapshot for dashboard table */
+  const [flatMaintenanceRows, setFlatMaintenanceRows] = useState([]);
 
   const { apartment, userProfile, checkSubscription, profileLoaded } = useAuth();
   const activeApartmentId = useAdminActiveApartment();
@@ -253,7 +256,7 @@ const Dashboard = () => {
         Promise.all([
           supabase
             .from('flats')
-            .select('id, monthly_maintenance, pending_maintenance, other_maintenance')
+            .select('id, flat_number, monthly_maintenance, pending_maintenance, other_maintenance')
             .eq('apartment_id', activeApartmentId),
           periodIncomeQ,
           periodExpenseQ,
@@ -275,6 +278,16 @@ const Dashboard = () => {
       );
 
       const flatsList = flatRows || [];
+      setFlatMaintenanceRows(
+        flatsList.map((f) => ({
+          id: f.id,
+          flat_number: f.flat_number ?? '—',
+          monthly: Number(f.monthly_maintenance ?? 0),
+          pending: Number(f.pending_maintenance ?? 0),
+          other: Number(f.other_maintenance ?? 0),
+          total: dueFromFlat(f),
+        }))
+      );
       const totalFlats = flatsList.length;
       const maintenancePaidRows = (maintenanceRows || []).filter((m) => m.status === 'paid');
       const totalFlatPendingMaintenance = pendingTotalForDashboardPeriod(
@@ -480,6 +493,14 @@ const Dashboard = () => {
     const { name, value, files } = e.target;
     if (name === 'attachment') {
       setReceiptForm((prev) => ({ ...prev, attachment: files[0] }));
+    } else if (name === 'maintenancePaymentTarget') {
+      setReceiptForm((prev) => ({ ...prev, maintenancePaymentTarget: value }));
+    } else if (name === 'category') {
+      setReceiptForm((prev) => ({
+        ...prev,
+        category: value,
+        maintenancePaymentTarget: 'current',
+      }));
     } else if (name === 'flat_id') {
       setReceiptForm((prev) => {
         const flat = modalFlats.find((f) => f.id === value);
@@ -538,8 +559,14 @@ const Dashboard = () => {
       toast.error('Please select a category');
       return;
     }
-    if (!receiptForm.maintenanceYear || !receiptForm.maintenanceMonth) {
-      toast.error('Maintenance month is required');
+    const isMaint = receiptForm.category === 'Maintenance';
+    const payTarget = receiptForm.maintenancePaymentTarget === 'arrears' ? 'arrears' : 'current';
+    if (isMaint && !receiptForm.flat_id) {
+      toast.error('Select a flat for maintenance payments');
+      return;
+    }
+    if (isMaint && payTarget === 'current' && (!receiptForm.maintenanceYear || !receiptForm.maintenanceMonth)) {
+      toast.error('Select year and month for current maintenance');
       return;
     }
     try {
@@ -553,7 +580,10 @@ const Dashboard = () => {
         attachmentName = fileData.name;
         setReceiptUploading(false);
       }
-      const mm = `${receiptForm.maintenanceYear}-${String(Number(receiptForm.maintenanceMonth)).padStart(2, '0')}`;
+      const mm =
+        isMaint && payTarget === 'current'
+          ? `${receiptForm.maintenanceYear}-${String(Number(receiptForm.maintenanceMonth)).padStart(2, '0')}`
+          : null;
       const row = {
         apartment_id: activeApartmentId,
         flat_id: receiptForm.flat_id || null,
@@ -563,27 +593,30 @@ const Dashboard = () => {
         date: receiptForm.date,
         payment_mode: receiptForm.payment_mode,
         maintenance_month: mm,
+        maintenance_payment_target: isMaint && receiptForm.flat_id ? payTarget : null,
         attachment_url: attachmentUrl,
         attachment_name: attachmentName,
         created_by: userProfile.id,
       };
       const { error } = await supabase.from('income').insert(row);
       if (error) throw error;
-      if (row.category === 'Maintenance' && row.flat_id) {
+      if (isMaint && row.flat_id) {
         try {
-          await upsertMaintenanceFromIncomeReceipt({
+          await applyMaintenanceIncomeAfterInsert({
             apartmentId: activeApartmentId,
             flatId: row.flat_id,
+            amount: row.amount,
+            target: payTarget,
             maintenanceYear: receiptForm.maintenanceYear,
             maintenanceMonth: receiptForm.maintenanceMonth,
-            amount: parseFloat(receiptForm.amount),
             paymentDate: receiptForm.date,
             paymentMode: receiptForm.payment_mode,
           });
         } catch (syncErr) {
           console.error(syncErr);
           toast.error(
-            'Receipt saved, but the maintenance record could not be synced. You can correct it from the Maintenance tab.'
+            syncErr?.message ||
+              'Receipt saved, but maintenance could not be updated. You can correct it from the Maintenance tab.'
           );
         }
       }
@@ -835,6 +868,42 @@ const Dashboard = () => {
                 </div>
               </div>
 
+              {/* Per-flat maintenance snapshot (current month fee, old balance, other, total) */}
+              {flatMaintenanceRows.length > 0 && (
+                <div className="mb-6 rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
+                    <h2 className="text-sm font-semibold text-gray-900">Maintenance by flat (current snapshot)</h2>
+                    <span className="text-xs text-gray-500">Monthly = recurring fee; Old balance = arrears; Total = all three</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[720px] text-sm">
+                      <thead className="bg-gray-50 text-gray-600 text-xs">
+                        <tr>
+                          <th className="text-left py-2.5 px-3 font-medium">Flat</th>
+                          <th className="text-right py-2.5 px-3 font-medium">Monthly fee</th>
+                          <th className="text-right py-2.5 px-3 font-medium">Old balance</th>
+                          <th className="text-right py-2.5 px-3 font-medium">Other</th>
+                          <th className="text-right py-2.5 px-3 font-medium">Total outstanding</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {flatMaintenanceRows.map((r) => (
+                          <tr key={r.id} className="hover:bg-gray-50/80">
+                            <td className="py-2.5 px-3 font-medium text-gray-900">{r.flat_number}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums">{formatCurrency(r.monthly)}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums text-amber-800">{formatCurrency(r.pending)}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums">{formatCurrency(r.other)}</td>
+                            <td className="py-2.5 px-3 text-right font-semibold tabular-nums text-gray-900">
+                              {formatCurrency(r.total)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {/* Latest announcement — card neutral; message body highlighted in red */}
               <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-5 mb-6">
                 <div className="flex items-center justify-between gap-2 mb-3">
@@ -1007,30 +1076,60 @@ const Dashboard = () => {
                     />
                   </div>
 
+                  <InputField
+                    label="Category"
+                    name="category"
+                    type="select"
+                    value={receiptForm.category}
+                    onChange={handleReceiptChange}
+                    options={[
+                      { value: '', label: 'Select Category' },
+                      ...incomeCategories.map((c) => ({ value: c.name, label: c.name })),
+                      { value: 'Maintenance', label: 'Maintenance' },
+                      { value: 'Penalty', label: 'Penalty' },
+                      { value: 'Other Income', label: 'Other Income' },
+                      { value: 'Other', label: 'Other' },
+                    ]}
+                    required
+                  />
+
+                  {receiptForm.category === 'Maintenance' && receiptForm.flat_id && (
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 px-4 py-3 space-y-2">
+                      <p className="text-sm font-medium text-gray-800">Apply maintenance payment to</p>
+                      <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="maintenancePaymentTarget"
+                          value="current"
+                          checked={receiptForm.maintenancePaymentTarget !== 'arrears'}
+                          onChange={handleReceiptChange}
+                          className="mt-1"
+                        />
+                        <span>Current month — links to the month below and updates the maintenance record</span>
+                      </label>
+                      <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="maintenancePaymentTarget"
+                          value="arrears"
+                          checked={receiptForm.maintenancePaymentTarget === 'arrears'}
+                          onChange={handleReceiptChange}
+                          className="mt-1"
+                        />
+                        <span>Old balance / arrears — reduces the flat’s pending (arrears) amount</span>
+                      </label>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <InputField
-                      label="Category"
-                      name="category"
-                      type="select"
-                      value={receiptForm.category}
-                      onChange={handleReceiptChange}
-                      options={[
-                        { value: '', label: 'Select Category' },
-                        ...incomeCategories.map((c) => ({ value: c.name, label: c.name })),
-                        { value: 'Maintenance', label: 'Maintenance' },
-                        { value: 'Penalty', label: 'Penalty' },
-                        { value: 'Other Income', label: 'Other Income' },
-                        { value: 'Other', label: 'Other' },
-                      ]}
-                      required
-                    />
                     <InputField
                       label="Year"
                       name="maintenanceYear"
                       type="select"
                       value={receiptForm.maintenanceYear}
                       onChange={handleReceiptChange}
-                      required
+                      required={!(receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'arrears')}
+                      disabled={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'arrears'}
                       options={getMaintenanceYearOptions()}
                     />
                     <InputField
@@ -1039,7 +1138,8 @@ const Dashboard = () => {
                       type="select"
                       value={receiptForm.maintenanceMonth}
                       onChange={handleReceiptChange}
-                      required
+                      required={!(receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'arrears')}
+                      disabled={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'arrears'}
                       options={CALENDAR_MONTH_OPTIONS}
                     />
                   </div>

@@ -32,14 +32,20 @@ const Subscribe = () => {
         userEmail: userProfile.email,
         userName: userProfile.name,
         userPhone: userProfile.phone,
+        // Stop button spinner as soon as Razorpay opens; still loading during server verify after pay.
+        onCheckoutOpen: () => setLoading(false),
         onSuccess: async (paymentData) => {
-          const result = await updateSubscription(SOCIETRACK_PLAN_ID, paymentData);
-          setLoading(false);
-          if (result.success) {
-            toast.success('Payment successful! Your plan is active for 30 days.');
-            navigate('/admin/dashboard');
-          } else {
-            toast.error(result.error || 'Could not confirm payment with server');
+          setLoading(true);
+          try {
+            const result = await updateSubscription(SOCIETRACK_PLAN_ID, paymentData);
+            if (result.success) {
+              toast.success('Payment successful! Your plan is active for 30 days.');
+              navigate('/admin/dashboard');
+            } else {
+              toast.error(result.error || 'Could not confirm payment with server');
+            }
+          } finally {
+            setLoading(false);
           }
         },
         onFailure: (error) => {

@@ -62,6 +62,8 @@ export const initiatePayment = ({
   userPhone,
   onSuccess,
   onFailure,
+  /** Called when Razorpay window opens (order created OK). Use to clear button loading — the main Promise still resolves on pay/cancel. */
+  onCheckoutOpen,
 }) => {
   return new Promise((resolve, reject) => {
     const go = async () => {
@@ -130,6 +132,11 @@ export const initiatePayment = ({
           reject(error);
         });
         razorpay.open();
+        try {
+          onCheckoutOpen?.();
+        } catch {
+          /* ignore */
+        }
       } catch (error) {
         onFailure?.(error);
         reject(error);

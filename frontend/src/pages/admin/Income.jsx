@@ -12,7 +12,7 @@ import toast from 'react-hot-toast';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
 import { CALENDAR_MONTH_OPTIONS, getMaintenanceYearOptions } from '../../utils/maintenanceMonthOptions';
-import { upsertMaintenanceFromIncomeReceipt } from '../../lib/upsertMaintenanceFromIncome';
+import { applyMaintenanceIncomeAfterInsert } from '../../lib/applyMaintenanceIncome';
 
 const formatMaintMonthLabel = (val) => {
   if (!val || !/^\d{4}-\d{2}$/.test(String(val))) return '—';
@@ -48,6 +48,7 @@ const Income = () => {
       payment_mode: 'cash',
       maintenanceYear: String(d.getFullYear()),
       maintenanceMonth: String(d.getMonth() + 1),
+      maintenancePaymentTarget: 'current',
       attachment: null,
     };
   });
@@ -148,6 +149,14 @@ const Income = () => {
     const { name, value, files } = e.target;
     if (name === 'attachment') {
       setFormData({ ...formData, attachment: files[0] });
+    } else if (name === 'maintenancePaymentTarget') {
+      setFormData((prev) => ({ ...prev, maintenancePaymentTarget: value }));
+    } else if (name === 'category') {
+      setFormData((prev) => ({
+        ...prev,
+        category: value,
+        maintenancePaymentTarget: 'current',
+      }));
     } else if (name === 'flat_id') {
       setFormData((prev) => {
         const flat = flats.find((f) => f.id === value);
@@ -187,8 +196,14 @@ const Income = () => {
       return;
     }
 
-    if (!formData.maintenanceYear || !formData.maintenanceMonth) {
-      toast.error('Maintenance month is required');
+    const isMaint = formData.category === 'Maintenance';
+    const payTarget = formData.maintenancePaymentTarget === 'arrears' ? 'arrears' : 'current';
+    if (isMaint && !formData.flat_id) {
+      toast.error('Select a flat for maintenance payments');
+      return;
+    }
+    if (isMaint && payTarget === 'current' && (!formData.maintenanceYear || !formData.maintenanceMonth)) {
+      toast.error('Select year and month for current maintenance');
       return;
     }
 
@@ -197,7 +212,6 @@ const Income = () => {
       let attachmentUrl = null;
       let attachmentName = null;
 
-      // Upload file if exists
       if (formData.attachment) {
         setUploadingFile(true);
         const fileData = await uploadFile(formData.attachment, `income/${activeApartmentId}`);
@@ -206,7 +220,10 @@ const Income = () => {
         setUploadingFile(false);
       }
 
-      const mm = `${formData.maintenanceYear}-${String(Number(formData.maintenanceMonth)).padStart(2, '0')}`;
+      const mm =
+        isMaint && payTarget === 'current'
+          ? `${formData.maintenanceYear}-${String(Number(formData.maintenanceMonth)).padStart(2, '0')}`
+          : null;
 
       const incomeData = {
         apartment_id: activeApartmentId,
@@ -217,49 +234,44 @@ const Income = () => {
         date: formData.date,
         payment_mode: formData.payment_mode,
         maintenance_month: mm,
+        maintenance_payment_target: isMaint && formData.flat_id ? payTarget : null,
         attachment_url: attachmentUrl || editingIncome?.attachment_url,
         attachment_name: attachmentName || editingIncome?.attachment_name,
         created_by: userProfile.id,
       };
 
       if (editingIncome) {
-        // Delete old attachment if new one uploaded
         if (attachmentUrl && editingIncome.attachment_url) {
           await deleteFile(editingIncome.attachment_url);
         }
 
-        const { error } = await supabase
-          .from('income')
-          .update(incomeData)
-          .eq('id', editingIncome.id);
-
+        const { error } = await supabase.from('income').update(incomeData).eq('id', editingIncome.id);
         if (error) throw error;
-        toast.success('Income updated successfully');
+        toast.success('Income updated. If payment allocation changed, verify Maintenance and Flats.');
       } else {
-        const { error } = await supabase
-          .from('income')
-          .insert(incomeData);
-
+        const { error } = await supabase.from('income').insert(incomeData);
         if (error) throw error;
         toast.success('Income added successfully');
-      }
 
-      if (formData.category === 'Maintenance' && formData.flat_id) {
-        try {
-          await upsertMaintenanceFromIncomeReceipt({
-            apartmentId: activeApartmentId,
-            flatId: formData.flat_id,
-            maintenanceYear: formData.maintenanceYear,
-            maintenanceMonth: formData.maintenanceMonth,
-            amount: parseFloat(formData.amount),
-            paymentDate: formData.date,
-            paymentMode: formData.payment_mode,
-          });
-        } catch (syncErr) {
-          console.error(syncErr);
-          toast.error(
-            'Income saved, but the maintenance record could not be synced. You can correct it from the Maintenance tab.'
-          );
+        if (isMaint && formData.flat_id) {
+          try {
+            await applyMaintenanceIncomeAfterInsert({
+              apartmentId: activeApartmentId,
+              flatId: formData.flat_id,
+              amount: incomeData.amount,
+              target: payTarget,
+              maintenanceYear: formData.maintenanceYear,
+              maintenanceMonth: formData.maintenanceMonth,
+              paymentDate: formData.date,
+              paymentMode: formData.payment_mode,
+            });
+          } catch (syncErr) {
+            console.error(syncErr);
+            toast.error(
+              syncErr?.message ||
+                'Income saved, but maintenance could not be updated. You can correct it from the Maintenance tab.'
+            );
+          }
         }
       }
 
@@ -433,6 +445,7 @@ const Income = () => {
       payment_mode: item.payment_mode || 'cash',
       maintenanceYear,
       maintenanceMonth,
+      maintenancePaymentTarget: item.maintenance_payment_target === 'arrears' ? 'arrears' : 'current',
       attachment: null,
     });
     const flat = flats.find((f) => f.id === item.flat_id);
@@ -492,6 +505,7 @@ const Income = () => {
       payment_mode: 'cash',
       maintenanceYear: String(d.getFullYear()),
       maintenanceMonth: String(d.getMonth() + 1),
+      maintenancePaymentTarget: 'current',
       attachment: null,
     });
     setResidentPreview({ name: '', phone: '', email: '' });
@@ -658,7 +672,11 @@ const Income = () => {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-700 whitespace-nowrap">
-                          {formatMaintMonthLabel(item.maintenance_month)}
+                          {item.maintenance_payment_target === 'arrears' ? (
+                            <span className="text-amber-800 font-medium">Arrears</span>
+                          ) : (
+                            formatMaintMonthLabel(item.maintenance_month)
+                          )}
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-600">
                           {item.description || '-'}
@@ -765,30 +783,62 @@ const Income = () => {
             />
           </div>
 
+          <InputField
+            label="Category"
+            type="select"
+            name="category"
+            value={formData.category}
+            onChange={handleChange}
+            required
+            options={[
+              { value: '', label: 'Select Category' },
+              ...categories.map((cat) => ({ value: cat.name, label: cat.name })),
+              { value: 'Maintenance', label: 'Maintenance' },
+              { value: 'Penalty', label: 'Penalty' },
+              { value: 'Other Income', label: 'Other Income' },
+              { value: 'Other', label: 'Other' },
+            ]}
+          />
+
+          {formData.category === 'Maintenance' && formData.flat_id && (
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 px-4 py-3 space-y-2">
+              <p className="text-sm font-medium text-gray-800">Apply maintenance payment to</p>
+              <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="radio"
+                  name="maintenancePaymentTarget"
+                  value="current"
+                  checked={formData.maintenancePaymentTarget !== 'arrears'}
+                  onChange={handleChange}
+                  className="mt-1"
+                  disabled={!!editingIncome}
+                />
+                <span>Current month — links to the month below and updates the maintenance record</span>
+              </label>
+              <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="radio"
+                  name="maintenancePaymentTarget"
+                  value="arrears"
+                  checked={formData.maintenancePaymentTarget === 'arrears'}
+                  onChange={handleChange}
+                  className="mt-1"
+                  disabled={!!editingIncome}
+                />
+                <span>Old balance / arrears — reduces the flat’s pending (arrears) amount</span>
+              </label>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <InputField
-              label="Category"
-              type="select"
-              name="category"
-              value={formData.category}
-              onChange={handleChange}
-              required
-              options={[
-                { value: '', label: 'Select Category' },
-                ...categories.map(cat => ({ value: cat.name, label: cat.name })),
-                { value: 'Maintenance', label: 'Maintenance' },
-                { value: 'Penalty', label: 'Penalty' },
-                { value: 'Other Income', label: 'Other Income' },
-                { value: 'Other', label: 'Other' },
-              ]}
-            />
             <InputField
               label="Year"
               type="select"
               name="maintenanceYear"
               value={formData.maintenanceYear}
               onChange={handleChange}
-              required
+              required={!(formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'arrears')}
+              disabled={formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'arrears'}
               options={getMaintenanceYearOptions()}
             />
             <InputField
@@ -797,7 +847,8 @@ const Income = () => {
               name="maintenanceMonth"
               value={formData.maintenanceMonth}
               onChange={handleChange}
-              required
+              required={!(formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'arrears')}
+              disabled={formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'arrears'}
               options={CALENDAR_MONTH_OPTIONS}
             />
           </div>

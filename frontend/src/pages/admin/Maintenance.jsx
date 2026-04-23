@@ -11,6 +11,7 @@ import Card from '../../components/Card';
 import EmptyState from '../../components/EmptyState';
 import toast from 'react-hot-toast';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
+import { maintenanceApi } from '../../lib/apiClient';
 
 const Maintenance = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -20,6 +21,7 @@ const Maintenance = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [searchTerm, setSearchTerm] = useState('');
+  const [rolloverLoading, setRolloverLoading] = useState(false);
   const [stats, setStats] = useState({
     totalFlats: 0,
     paidCount: 0,
@@ -72,7 +74,13 @@ const Maintenance = () => {
     owner_phone: flat.resident_phone || flat.owner_phone,
   });
 
-  const fetchMaintenance = async () => {
+  const fetchMaintenance = async (flatsList) => {
+    const list = flatsList === undefined ? flats : (flatsList || []);
+    if (!list || list.length === 0) {
+      setMaintenance([]);
+      setStats({ totalFlats: 0, paidCount: 0, pendingCount: 0, pendingAmount: 0 });
+      return;
+    }
     try {
       setLoading(true);
 
@@ -95,7 +103,7 @@ const Maintenance = () => {
       );
 
       // Create combined list with all flats
-      const combinedData = flats.map((flat) => {
+      const combinedData = list.map((flat) => {
         const f = normalizeFlatForRow(flat);
         const existing = existingMap.get(flat.id);
         const baseDue = dueFromFlat(flat);
@@ -135,16 +143,56 @@ const Maintenance = () => {
         .reduce((sum, m) => sum + Number(m.amount || 0), 0);
 
       setStats({
-        totalFlats: flats.length,
+        totalFlats: list.length,
         paidCount,
         pendingCount,
         pendingAmount,
       });
     } catch (error) {
-      console.error('Error fetching maintenance:', error);
+      console.error('Error fetching maintenance data:', error);
       toast.error('Failed to load maintenance data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleMonthEndRollover = async () => {
+    if (!activeApartmentId) return;
+    const label = `${getMonthName(selectedMonth)} ${selectedYear}`;
+    if (
+      !window.confirm(
+        `Close month for ${label}?\n\n` +
+          'Unpaid amounts for that month are added to each flat’s old balance (arrears), and maintenance rows for that month are removed. This cannot be undone.\n\n' +
+          'Use the month selector above to choose which month to close (usually the month you have finished collecting).'
+      )
+    ) {
+      return;
+    }
+    try {
+      setRolloverLoading(true);
+      const res = await maintenanceApi.rollover({
+        apartment_id: activeApartmentId,
+        close_year: selectedYear,
+        close_month: selectedMonth,
+      });
+      const parts = [
+        res.flats_updated != null && `${res.flats_updated} flat(s) updated`,
+        res.rows_deleted != null && `${res.rows_deleted} month record(s) cleared`,
+      ].filter(Boolean);
+      toast.success(`Month closed${parts.length ? `: ${parts.join(', ')}` : ''}.`);
+      const { data: newFlats, error: fe } = await supabase
+        .from('flats')
+        .select('*')
+        .eq('apartment_id', activeApartmentId)
+        .order('flat_number');
+      if (fe) throw fe;
+      setFlats(newFlats || []);
+      await fetchMaintenance(newFlats || []);
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.message || 'Could not run month-end rollover. Is the API running?');
+    } finally {
+      setRolloverLoading(false);
     }
   };
 
@@ -278,61 +326,118 @@ const Maintenance = () => {
     toast.success('Overall pending export started');
   };
 
-  const handleDownloadPending = () => {
-    const pending = filteredMaintenance.filter((m) => m.status === 'pending');
-    if (pending.length === 0) {
-      toast.error('No pending maintenance rows to download');
+  const handleDownloadStatusPdf = () => {
+    if (!filteredMaintenance.length) {
+      toast.error('No rows to export. Add flats or clear the search filter.');
       return;
     }
 
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
     const periodLabel = `${getMonthName(selectedMonth)} ${selectedYear}`;
     const aptName = apartment?.name || 'Society';
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
 
-    doc.setFontSize(16);
+    doc.setFontSize(15);
     doc.setTextColor(0);
-    doc.text('Pending maintenance', 14, 18);
+    doc.text('Maintenance status report', 14, 16);
     doc.setFontSize(11);
-    doc.text(aptName, 14, 26);
-    doc.setFontSize(10);
+    doc.text(aptName, 14, 24);
+    doc.setFontSize(9);
     doc.setTextColor(80);
-    doc.text(`Period: ${periodLabel}`, 14, 32);
-    doc.text(`Generated ${formatDate(new Date())}`, 14, 38);
+    doc.text(`Period: ${periodLabel}`, 14, 30);
+    doc.text(`Generated: ${formatDate(new Date().toISOString())}`, 14, 35);
+    doc.setTextColor(0, 0, 0);
 
-    const total = pending.reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
+    let sumMonthly = 0;
+    let sumArrears = 0;
+    let sumOther = 0;
+    let sumTotal = 0;
+    let sumMonthAmt = 0;
+
+    const body = filteredMaintenance.map((r) => {
+      const f = r.flats || {};
+      const m = Number(f.monthly_maintenance ?? 0);
+      const p = Number(f.pending_maintenance ?? 0);
+      const o = Number(f.other_maintenance ?? 0);
+      const tot = m + p + o;
+      const rec = Number(r.amount ?? 0);
+      const status = r.status === 'paid' ? 'Paid' : r.status === 'pending' ? 'Pending' : String(r.status ?? '—');
+
+      sumMonthly += m;
+      sumArrears += p;
+      sumOther += o;
+      sumTotal += tot;
+      sumMonthAmt += rec;
+
+      return [
+        String(f.flat_number ?? '—'),
+        String(f.resident_name || f.owner_name || '—'),
+        String(f.resident_phone || f.owner_phone || '—'),
+        formatCurrency(m),
+        formatCurrency(p),
+        formatCurrency(o),
+        formatCurrency(tot),
+        status,
+        formatCurrency(rec),
+      ];
+    });
 
     doc.autoTable({
-      startY: 44,
-      head: [['Flat', 'Owner', 'Phone', 'Amount', 'Status']],
-      body: pending.map((r) => [
-        String(r.flats?.flat_number ?? '—'),
-        String(r.flats?.owner_name ?? '—'),
-        String(r.flats?.owner_phone ?? '—'),
-        formatCurrency(Number(r.amount ?? 0)),
-        r.status === 'pending' ? 'Pending' : String(r.status ?? '—'),
-      ]),
-      foot: [['', '', '', 'Total pending', formatCurrency(total)]],
+      startY: 40,
+      head: [
+        [
+          'Flat',
+          'Owner',
+          'Phone',
+          'Current month (fee)',
+          'Old balance',
+          'Other',
+          'Total outstanding',
+          'Status',
+          'Amount for month',
+        ],
+      ],
+      body,
+      foot: [
+        [
+          'Totals',
+          '',
+          '',
+          formatCurrency(sumMonthly),
+          formatCurrency(sumArrears),
+          formatCurrency(sumOther),
+          formatCurrency(sumTotal),
+          '',
+          formatCurrency(sumMonthAmt),
+        ],
+      ],
       theme: 'striped',
-      headStyles: { fillColor: [34, 197, 94] },
-      footStyles: { fillColor: [254, 243, 199], textColor: [0, 0, 0], fontStyle: 'bold' },
-      styles: { fontSize: 9 },
+      headStyles: { fillColor: [34, 197, 94], fontSize: 8, cellPadding: 1.2 },
+      footStyles: { fillColor: [254, 243, 199], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 8 },
+      styles: { fontSize: 7.5, cellPadding: 1 },
       columnStyles: {
-        3: { halign: 'right' },
-        4: { halign: 'center' },
+        0: { cellWidth: 16 },
+        1: { cellWidth: 28 },
+        2: { cellWidth: 24 },
+        3: { halign: 'right', cellWidth: 24 },
+        4: { halign: 'right', cellWidth: 22 },
+        5: { halign: 'right', cellWidth: 20 },
+        6: { halign: 'right', cellWidth: 28 },
+        7: { halign: 'center', cellWidth: 18 },
+        8: { halign: 'right', cellWidth: 28 },
       },
     });
 
     const pageCount = doc.internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
-      doc.setFontSize(8);
+      doc.setFontSize(7);
       doc.setTextColor(150);
-      doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+      doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, pageHeight - 6, { align: 'center' });
     }
 
-    doc.save(`pending-maintenance-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.pdf`);
+    doc.save(`maintenance-status-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.pdf`);
     toast.success('PDF download started');
   };
 
@@ -394,8 +499,8 @@ const Maintenance = () => {
               />
             </div>
 
-            <Button variant="outline" icon={Download} onClick={handleDownloadPending}>
-              Download month pending
+            <Button variant="outline" icon={Download} onClick={handleDownloadStatusPdf}>
+              Download status report (PDF)
             </Button>
             <Button variant="outline" icon={Download} onClick={handleDownloadOverallFlatPending}>
               Download all flats (totals)
@@ -406,6 +511,15 @@ const Maintenance = () => {
                 Mark All Paid
               </Button>
             )}
+
+            <Button
+              variant="outline"
+              icon={Clock}
+              disabled={!activeApartmentId || loading || flats.length === 0 || rolloverLoading}
+              onClick={handleMonthEndRollover}
+            >
+              {rolloverLoading ? 'Closing month…' : 'Close month (move unpaid to arrears)'}
+            </Button>
           </div>
 
           {/* Stats Cards */}

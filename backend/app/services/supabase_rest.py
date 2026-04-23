@@ -47,7 +47,9 @@ class SupabaseREST:
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.delete(f"{self.base_url}/{path.lstrip('/')}", headers=self.headers, params=params)
             r.raise_for_status()
-            return r.json()
+            if r.content:
+                return r.json()
+            return None
 
 
 supabase_rest = SupabaseREST
