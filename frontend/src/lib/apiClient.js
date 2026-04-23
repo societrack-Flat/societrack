@@ -25,8 +25,19 @@ const apiCall = async (endpoint, options = {}) => {
     const response = await fetch(url, config);
     
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      let errBody = {};
+      try {
+        errBody = await response.json();
+      } catch {
+        /* ignore */
+      }
+      const detail = errBody.detail;
+      const msg = Array.isArray(detail)
+        ? detail.map((d) => d.msg || JSON.stringify(d)).join('; ')
+        : typeof detail === 'string'
+          ? detail
+          : (detail && JSON.stringify(detail)) || errBody.message || `HTTP ${response.status}`;
+      throw new Error(msg);
     }
     
     return await response.json();
@@ -137,4 +148,19 @@ export const storageApi = {
   },
 };
 
-export default { authApi, apartmentApi, storageApi };
+/** Razorpay: order + verify (signatures verified on server). */
+export const paymentsApi = {
+  createRazorpayOrder: (body) =>
+    apiCall('/api/payments/razorpay/create-order', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  verifyRazorpayPayment: (body) =>
+    apiCall('/api/payments/razorpay/verify', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+};
+
+export default { authApi, apartmentApi, storageApi, paymentsApi };

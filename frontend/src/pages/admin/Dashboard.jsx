@@ -444,7 +444,16 @@ const Dashboard = () => {
     }
   };
 
-  const subscription = userProfile ? checkSubscription() : { valid: true, status: null, daysLeft: null };
+  const subscription = userProfile
+    ? checkSubscription()
+    : {
+        valid: true,
+        status: null,
+        daysLeft: null,
+        adminAccess: 'full',
+        showSubscribeCta: false,
+      };
+  const isAdminReadOnly = subscription?.adminAccess === 'read_only';
 
   const periodNet =
     timeRange === 'all'
@@ -656,19 +665,46 @@ const Dashboard = () => {
             </div>
           ) : (
             <>
-              {/* Trial Warning */}
-              {subscription?.status === 'trial' && subscription?.daysLeft <= 3 && (
+              {/* Lapsed: view-only (trial or paid) */}
+              {isAdminReadOnly && (
+                <div className="bg-gradient-to-r from-red-50 to-rose-50 border border-red-200 rounded-2xl p-4 mb-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-red-900">Your subscription is not active</p>
+                      <p className="text-sm text-red-800 mt-0.5">
+                        You can view the dashboard and reports. To add or change data, renew your plan.
+                      </p>
+                    </div>
+                    <Link
+                      to="/subscribe"
+                      className="inline-flex justify-center px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium whitespace-nowrap"
+                    >
+                      Subscribe now
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {/* 1–2 days left: remind before trial or paid period ends */}
+              {!isAdminReadOnly && subscription?.showSubscribeCta && (
                 <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 mb-6 flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-amber-100 rounded-lg">
                       <Clock className="text-amber-600" size={20} />
                     </div>
                     <div>
-                      <p className="font-semibold text-amber-900">Trial ends in {subscription?.daysLeft} days</p>
-                      <p className="text-sm text-amber-700">Subscribe to keep access to all features</p>
+                      <p className="font-semibold text-amber-900">
+                        {subscription?.status === 'trial'
+                          ? `Trial ends in ${subscription?.daysLeft} day${subscription?.daysLeft === 1 ? '' : 's'}`
+                          : `Subscription renews in ${subscription?.daysLeft} day${subscription?.daysLeft === 1 ? '' : 's'}`}
+                      </p>
+                      <p className="text-sm text-amber-700">Subscribe to avoid interruption</p>
                     </div>
                   </div>
-                  <Link to="/subscribe" className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium whitespace-nowrap transition-colors">
+                  <Link
+                    to="/subscribe"
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium whitespace-nowrap transition-colors"
+                  >
                     Subscribe Now
                   </Link>
                 </div>
@@ -686,36 +722,40 @@ const Dashboard = () => {
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReceiptForm(defaultReceiptForm(new Date().toISOString().split('T')[0]));
-                      setReceiptResidentPreview({ name: '', phone: '', email: '' });
-                      setShowReceiptModal(true);
-                    }}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white shadow-sm transition-colors"
-                    style={{ backgroundColor: DASH_GREEN }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = DASH_GREEN_HOVER;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = DASH_GREEN;
-                    }}
-                  >
-                    <Plus size={18} strokeWidth={2.5} />
-                    Add Receipt
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExpenseForm(defaultExpenseForm(new Date().toISOString().split('T')[0]));
-                      setShowExpenseModal(true);
-                    }}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold bg-white border border-gray-300 text-gray-800 hover:bg-gray-50 shadow-sm"
-                  >
-                    <Receipt size={18} />
-                    Add Expense
-                  </button>
+                  {!isAdminReadOnly && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReceiptForm(defaultReceiptForm(new Date().toISOString().split('T')[0]));
+                          setReceiptResidentPreview({ name: '', phone: '', email: '' });
+                          setShowReceiptModal(true);
+                        }}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white shadow-sm transition-colors"
+                        style={{ backgroundColor: DASH_GREEN }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = DASH_GREEN_HOVER;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = DASH_GREEN;
+                        }}
+                      >
+                        <Plus size={18} strokeWidth={2.5} />
+                        Add Receipt
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExpenseForm(defaultExpenseForm(new Date().toISOString().split('T')[0]));
+                          setShowExpenseModal(true);
+                        }}
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold bg-white border border-gray-300 text-gray-800 hover:bg-gray-50 shadow-sm"
+                      >
+                        <Receipt size={18} />
+                        Add Expense
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 

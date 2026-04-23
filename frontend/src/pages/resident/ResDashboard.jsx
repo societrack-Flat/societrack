@@ -378,7 +378,9 @@ const ResDashboard = () => {
     }
   };
 
-  const subscription = userProfile ? checkSubscription() : { valid: true, status: null, daysLeft: null };
+  const subscription = userProfile
+    ? checkSubscription()
+    : { valid: true, status: null, daysLeft: null, adminAccess: 'full', showSubscribeCta: false };
 
   const periodNet =
     timeRange === 'all'

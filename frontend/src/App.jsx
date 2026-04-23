@@ -85,6 +85,7 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     retryBootstrap,
     saManagedApartmentId,
   } = useAuth();
+  const location = useLocation();
 
   console.log('[ProtectedRoute] render:', {
     hasUser: !!user,
@@ -157,13 +158,21 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     return <Navigate to="/login" replace />;
   }
 
-  // Subscription gate (admin only, not super_admin routes) - TEMPORARILY DISABLED
-  // if (userProfile.role === 'admin' && !allowedRoles.includes('super_admin')) {
-  //   const subscription = checkSubscription();
-  //   if (!subscription.valid && subscription.reason === 'expired') {
-  //     return <Navigate to="/subscribe" replace />;
-  //   }
-  // }
+  /* Admin with lapsed trial/subscription: read-only — dashboard, reports, account, subscribe only */
+  if (userProfile.role === 'admin' && !saManagedApartmentId) {
+    const sub = checkSubscription();
+    if (sub.adminAccess === 'read_only') {
+      const path = location.pathname;
+      const allowed =
+        path.startsWith('/admin/dashboard') ||
+        path.startsWith('/admin/reports') ||
+        path.startsWith('/admin/account') ||
+        path.startsWith('/subscribe');
+      if (!allowed) {
+        return <Navigate to="/admin/dashboard" replace />;
+      }
+    }
+  }
 
   console.log('[ProtectedRoute] rendering children');
   return children;

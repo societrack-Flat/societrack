@@ -33,10 +33,15 @@ class SupabaseREST:
             return r.json()
 
     async def patch(self, path: str, params: dict | None = None, json: dict | None = None):
+        headers = {**self.headers, "Prefer": "return=representation"}
         async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.patch(f"{self.base_url}/{path.lstrip('/')}", headers=self.headers, params=params, json=json)
+            r = await client.patch(
+                f"{self.base_url}/{path.lstrip('/')}", headers=headers, params=params, json=json
+            )
             r.raise_for_status()
-            return r.json()
+            if r.content:
+                return r.json()
+            return []
 
     async def delete(self, path: str, params: dict | None = None):
         async with httpx.AsyncClient(timeout=20) as client:

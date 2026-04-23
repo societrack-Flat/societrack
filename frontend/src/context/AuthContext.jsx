@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { supabase, getPublicSiteUrl } from '../lib/supabaseClient';
-// Temporarily disable API imports to test
-// import { authApi, apartmentApi } from '../lib/apiClient';
+import { paymentsApi } from '../lib/apiClient';
+import { SOCIETRACK_PLAN_ID } from '../lib/razorpay';
 
 const AuthContext = createContext(null);
 const PROFILE_CACHE_KEY = 'societrack_profile_cache_v1';
@@ -942,38 +942,145 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  /**
+   * Admin subscription: 45-day trial (full), then paid via Razorpay (30 days / cycle).
+   * showSubscribeCta: last 1–2 days of trial or paid period. adminAccess: read-only when lapsed.
+   */
   const checkSubscription = () => {
-    if (!userProfile) return { valid: false, reason: 'no_profile', status: null, daysLeft: null };
-    if (userProfile.role === 'super_admin') return { valid: true, status: null, daysLeft: null };
+    if (!userProfile) {
+      return {
+        valid: false,
+        reason: 'no_profile',
+        status: null,
+        daysLeft: null,
+        adminAccess: 'full',
+        showSubscribeCta: false,
+      };
+    }
+    if (userProfile.role === 'super_admin') {
+      return {
+        valid: true,
+        status: null,
+        daysLeft: null,
+        reason: null,
+        adminAccess: 'full',
+        showSubscribeCta: false,
+      };
+    }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const apt = apartment;
-    // Apartment trial (45-day) — prefer this over legacy per-user subscription_end_date when in trial.
+    const defaultFull = {
+      valid: true,
+      status: null,
+      daysLeft: null,
+      reason: null,
+      adminAccess: 'full',
+      showSubscribeCta: false,
+    };
+
+    if (!apt) return defaultFull;
+
     const planIsTrial =
-      apt?.plan_name === 'free_trial' || apt?.plan_name === 'free' || apt?.subscription_status === 'trial';
-    if (apt?.trial_end_date && planIsTrial) {
+      apt?.plan_name === 'free_trial' ||
+      apt?.plan_name === 'free' ||
+      String(apt?.subscription_status || '').toLowerCase() === 'trial';
+
+    if (apt.trial_end_date && planIsTrial) {
       const trialEnd = new Date(apt.trial_end_date);
       trialEnd.setHours(0, 0, 0, 0);
       const daysLeft = Math.ceil((trialEnd.getTime() - today.getTime()) / 86400000);
+      if (daysLeft < 0) {
+        return {
+          valid: false,
+          reason: 'expired',
+          status: 'trial',
+          daysLeft: 0,
+          adminAccess: 'read_only',
+          showSubscribeCta: true,
+        };
+      }
       return {
-        valid: daysLeft >= 0,
-        reason: daysLeft < 0 ? 'expired' : undefined,
+        valid: true,
+        reason: null,
         status: 'trial',
         daysLeft: Math.max(0, daysLeft),
+        adminAccess: 'full',
+        showSubscribeCta: daysLeft <= 2,
+      };
+    }
+
+    const paidStatus = String(apt?.subscription_status || '').toLowerCase() === 'active';
+    const paidPlan = String(apt?.plan_name || '').toLowerCase();
+    const isPaidPlan = paidStatus && (paidPlan === 'societrack_pro' || ['basic', 'standard', 'premium'].includes(paidPlan));
+    if (isPaidPlan && apt.subscription_end_date) {
+      const end = new Date(apt.subscription_end_date);
+      end.setHours(0, 0, 0, 0);
+      const daysLeft = Math.ceil((end.getTime() - today.getTime()) / 86400000);
+      if (daysLeft < 0) {
+        return {
+          valid: false,
+          reason: 'expired',
+          status: 'active',
+          daysLeft: 0,
+          adminAccess: 'read_only',
+          showSubscribeCta: true,
+        };
+      }
+      return {
+        valid: true,
+        reason: null,
+        status: 'active',
+        daysLeft: Math.max(0, daysLeft),
+        adminAccess: 'full',
+        showSubscribeCta: daysLeft <= 2,
       };
     }
 
     if (userProfile.subscription_end_date) {
       const endDate = new Date(userProfile.subscription_end_date);
       endDate.setHours(0, 0, 0, 0);
-      if (endDate < today) return { valid: false, reason: 'expired', status: null, daysLeft: null };
+      if (endDate < today) {
+        return {
+          valid: false,
+          reason: 'expired',
+          status: null,
+          daysLeft: null,
+          adminAccess: 'read_only',
+          showSubscribeCta: true,
+        };
+      }
       const daysLeft = Math.ceil((endDate.getTime() - today.getTime()) / 86400000);
-      return { valid: true, status: 'active', daysLeft: Math.max(0, daysLeft), reason: null };
+      return {
+        valid: true,
+        status: 'active',
+        daysLeft: Math.max(0, daysLeft),
+        reason: null,
+        adminAccess: 'full',
+        showSubscribeCta: daysLeft <= 2,
+      };
     }
 
-    return { valid: true, status: null, daysLeft: null, reason: null };
+    return defaultFull;
+  };
+
+  const updateSubscription = async (planId, paymentData) => {
+    try {
+      await paymentsApi.verifyRazorpayPayment({
+        plan_id: planId || SOCIETRACK_PLAN_ID,
+        apartment_id: paymentData.apartment_id,
+        razorpay_order_id: paymentData.razorpay_order_id,
+        razorpay_payment_id: paymentData.razorpay_payment_id,
+        razorpay_signature: paymentData.razorpay_signature,
+      });
+      const r = await refreshUserProfile();
+      return { success: r?.success !== false };
+    } catch (error) {
+      console.error('[updateSubscription]', error);
+      return { success: false, error: error?.message || String(error) };
+    }
   };
 
   const value = {
@@ -1006,6 +1113,7 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     updatePassword,
     checkSubscription,
+    updateSubscription,
     clearCachedApartmentList,
   };
 

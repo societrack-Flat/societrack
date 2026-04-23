@@ -99,6 +99,7 @@ const MyAccount = () => {
       basic: { name: 'Basic', price: 199, limit: 50 },
       standard: { name: 'Standard', price: 299, limit: 100 },
       premium: { name: 'Premium', price: 399, limit: 500 },
+      societrack_pro: { name: 'Societrack Pro', price: 499, limit: 500 },
     };
     return plans[planName] || plans.free_trial;
   };

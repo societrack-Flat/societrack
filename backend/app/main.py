@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.api.dashboard import router as dashboard_router
 from app.api.apartments import router as apartments_router
 from app.api.auth import router as auth_router
+from app.api.razorpay_payments import router as razorpay_router
 
 
 app = FastAPI(title=settings.app_name)
@@ -26,4 +27,5 @@ def health():
 app.include_router(dashboard_router)
 app.include_router(apartments_router)
 app.include_router(auth_router)
+app.include_router(razorpay_router)
 

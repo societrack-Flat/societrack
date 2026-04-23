@@ -1,42 +1,60 @@
-const RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
+import { paymentsApi } from './apiClient';
+
+/** Must match backend `app/subscription_plans.PLAN_ID` */
+export const SOCIETRACK_PLAN_ID = 'societrack_pro';
 
 const PLANS = {
-  basic: {
-    name: 'Basic',
-    amount: 19900, // Amount in paise (₹199)
-    flatLimit: 50,
-    description: 'Perfect for small apartments',
-    features: ['Up to 50 flats', 'Basic reports', 'Email support'],
-  },
-  standard: {
-    name: 'Standard',
-    amount: 29900, // Amount in paise (₹299)
-    flatLimit: 100,
-    description: 'Great for medium-sized societies',
-    features: ['Up to 100 flats', 'Advanced reports', 'Priority support', 'Bulk operations'],
-  },
-  premium: {
-    name: 'Premium',
-    amount: 39900, // Amount in paise (₹399)
+  [SOCIETRACK_PLAN_ID]: {
+    name: 'Societrack Pro',
+    amount: 49900, // paise
     flatLimit: 500,
-    description: 'For large apartment complexes',
-    features: ['Up to 500 flats', 'All reports', '24/7 support', 'API access', 'Custom branding'],
+    description: 'Full access to apartments, reports, income & expense tracking, maintenance, and more.',
+    features: [
+      'Unlimited data entry and updates',
+      'All reports and exports',
+      'Maintenance & announcements',
+      'Email support',
+    ],
   },
 };
 
-export const getPlanDetails = (planName) => {
-  return PLANS[planName] || PLANS.basic;
-};
+let razorpayScriptPromise = null;
+
+function loadRazorpayScript() {
+  if (typeof window === 'undefined') {
+    return Promise.reject(new Error('Razorpay is only available in the browser'));
+  }
+  if (window.Razorpay) {
+    return Promise.resolve();
+  }
+  if (razorpayScriptPromise) {
+    return razorpayScriptPromise;
+  }
+  razorpayScriptPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Could not load Razorpay checkout script'));
+    document.body.appendChild(s);
+  });
+  return razorpayScriptPromise;
+}
+
+export const getPlanDetails = (planId) => PLANS[planId] || PLANS[SOCIETRACK_PLAN_ID];
 
 export const getAllPlans = () => {
-  return Object.entries(PLANS).map(([key, value]) => ({
-    id: key,
+  return Object.entries(PLANS).map(([id, value]) => ({
+    id,
     ...value,
   }));
 };
 
+/**
+ * Open Razorpay: creates order on server, then Standard Checkout.
+ */
 export const initiatePayment = ({
-  planName,
+  planId = SOCIETRACK_PLAN_ID,
   apartmentId,
   apartmentName,
   userEmail,
@@ -46,114 +64,89 @@ export const initiatePayment = ({
   onFailure,
 }) => {
   return new Promise((resolve, reject) => {
-    if (!RAZORPAY_KEY_ID) {
-      const error = new Error('Razorpay key not configured');
-      onFailure?.(error);
-      reject(error);
-      return;
-    }
+    const go = async () => {
+      try {
+        await loadRazorpayScript();
+        if (!window.Razorpay) {
+          throw new Error('Razorpay failed to load');
+        }
 
-    const plan = getPlanDetails(planName);
-    
-    const options = {
-      key: RAZORPAY_KEY_ID,
-      amount: plan.amount,
-      currency: 'INR',
-      name: 'Societrack',
-      description: `${plan.name} Plan - Monthly Subscription`,
-      image: '/societrack-logo.png',
-      handler: function (response) {
-        const paymentData = {
-          razorpay_payment_id: response.razorpay_payment_id,
-          razorpay_order_id: response.razorpay_order_id,
-          razorpay_signature: response.razorpay_signature,
-          plan_name: planName,
-          amount: plan.amount / 100,
+        const order = await paymentsApi.createRazorpayOrder({
+          plan_id: planId,
           apartment_id: apartmentId,
+        });
+
+        const plan = getPlanDetails(planId);
+        const key = order.key_id;
+        if (!key || !order.order_id) {
+          throw new Error('Invalid order response from server');
+        }
+
+        const options = {
+          key,
+          order_id: order.order_id,
+          amount: order.amount,
+          currency: order.currency || 'INR',
+          name: 'Societrack',
+          description: `${plan.name} — monthly access`,
+          image: '/societrack-logo.png',
+          handler: function (response) {
+            const paymentData = {
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature,
+              plan_id: planId,
+              amount: plan.amount / 100,
+              apartment_id: apartmentId,
+            };
+            onSuccess?.(paymentData);
+            resolve(paymentData);
+          },
+          prefill: {
+            name: userName || '',
+            email: userEmail || '',
+            contact: userPhone || '',
+          },
+          notes: {
+            apartment_id: apartmentId,
+            apartment_name: apartmentName,
+            plan_id: planId,
+          },
+          theme: { color: '#22c55e' },
+          modal: {
+            ondismiss: function () {
+              const error = new Error('Payment cancelled by user');
+              onFailure?.(error);
+              reject(error);
+            },
+          },
         };
-        onSuccess?.(paymentData);
-        resolve(paymentData);
-      },
-      prefill: {
-        name: userName || '',
-        email: userEmail || '',
-        contact: userPhone || '',
-      },
-      notes: {
-        apartment_id: apartmentId,
-        apartment_name: apartmentName,
-        plan_name: planName,
-      },
-      theme: {
-        color: '#22c55e',
-      },
-      modal: {
-        ondismiss: function () {
-          const error = new Error('Payment cancelled by user');
+
+        const razorpay = new window.Razorpay(options);
+        razorpay.on('payment.failed', function (response) {
+          const error = new Error(response.error?.description || 'Payment failed');
+          error.code = response.error?.code;
           onFailure?.(error);
           reject(error);
-        },
-      },
-    };
-
-    try {
-      const razorpay = new window.Razorpay(options);
-      razorpay.on('payment.failed', function (response) {
-        const error = new Error(response.error.description || 'Payment failed');
-        error.code = response.error.code;
-        error.reason = response.error.reason;
+        });
+        razorpay.open();
+      } catch (error) {
         onFailure?.(error);
         reject(error);
-      });
-      razorpay.open();
-    } catch (error) {
-      onFailure?.(error);
-      reject(error);
-    }
+      }
+    };
+
+    go();
   });
 };
 
-export const createSubscription = async ({
-  planName,
-  apartmentId,
-  apartmentName,
-  userEmail,
-  userName,
-  userPhone,
-  onSuccess,
-  onFailure,
-}) => {
-  // For subscription-based billing, you would typically:
-  // 1. Create a subscription on your backend using Razorpay Subscriptions API
-  // 2. Return the subscription ID to the frontend
-  // 3. Use the subscription ID to process recurring payments
-  
-  // For simplicity, we're using one-time payments here
-  // You can modify this to use Razorpay Subscriptions API
-  
-  return initiatePayment({
-    planName,
-    apartmentId,
-    apartmentName,
-    userEmail,
-    userName,
-    userPhone,
-    onSuccess,
-    onFailure,
-  });
-};
+export const createSubscription = (params) => initiatePayment(params);
 
 export const verifyPayment = async (paymentData) => {
-  // In a production environment, you should verify the payment signature
-  // on your backend using Razorpay's verification method
-  
-  // For now, we'll assume the payment is valid if we have all required fields
-  const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = paymentData;
-  
+  const { razorpay_payment_id } = paymentData;
   if (!razorpay_payment_id) {
     throw new Error('Invalid payment data');
   }
-  
   return true;
 };
 
@@ -163,4 +156,5 @@ export default {
   initiatePayment,
   createSubscription,
   verifyPayment,
+  SOCIETRACK_PLAN_ID,
 };
