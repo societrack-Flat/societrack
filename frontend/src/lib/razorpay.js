@@ -62,7 +62,12 @@ export const initiatePayment = ({
   userPhone,
   onSuccess,
   onFailure,
-  /** Called when Razorpay window opens (order created OK). Use to clear button loading — the main Promise still resolves on pay/cancel. */
+  /**
+   * Called as soon as the server order is ready (before Razorpay UI opens). Use to clear button loading; avoids
+   * a stuck spinner if open() is delayed, blocked, or user-gesture issues after async gaps.
+   */
+  onOrderReady,
+  /** @deprecated use onOrderReady; still called right before open() for backward compatibility. */
   onCheckoutOpen,
 }) => {
   return new Promise((resolve, reject) => {
@@ -82,6 +87,12 @@ export const initiatePayment = ({
         const key = order.key_id;
         if (!key || !order.order_id) {
           throw new Error('Invalid order response from server');
+        }
+
+        try {
+          onOrderReady?.();
+        } catch {
+          /* ignore */
         }
 
         const options = {
@@ -131,11 +142,16 @@ export const initiatePayment = ({
           onFailure?.(error);
           reject(error);
         });
-        razorpay.open();
         try {
           onCheckoutOpen?.();
         } catch {
           /* ignore */
+        }
+        try {
+          razorpay.open();
+        } catch (e) {
+          onFailure?.(e instanceof Error ? e : new Error('Could not open Razorpay checkout'));
+          throw e;
         }
       } catch (error) {
         onFailure?.(error);

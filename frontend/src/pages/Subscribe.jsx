@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, ArrowLeft, CreditCard, Shield, Zap } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -8,9 +8,13 @@ import Card from '../components/Card';
 import toast from 'react-hot-toast';
 
 const Subscribe = () => {
-  const [loading, setLoading] = useState(false);
+  /** true only while the create-order request runs (spinner) */
+  const [orderLoading, setOrderLoading] = useState(false);
+  /** true from click until pay/dismiss/verify-finish so the button stays inert in the gap after order + during Razorpay */
+  const [payFlow, setPayFlow] = useState(false);
   const { apartment, userProfile, updateSubscription, checkSubscription } = useAuth();
   const navigate = useNavigate();
+  const payLockRef = useRef(false);
 
   const plans = getAllPlans();
   const plan = plans[0];
@@ -21,8 +25,11 @@ const Subscribe = () => {
       toast.error('Please login to continue');
       return;
     }
+    if (payLockRef.current) return;
+    payLockRef.current = true;
 
-    setLoading(true);
+    setPayFlow(true);
+    setOrderLoading(true);
 
     try {
       await initiatePayment({
@@ -32,10 +39,11 @@ const Subscribe = () => {
         userEmail: userProfile.email,
         userName: userProfile.name,
         userPhone: userProfile.phone,
-        // Stop button spinner as soon as Razorpay opens; still loading during server verify after pay.
-        onCheckoutOpen: () => setLoading(false),
+        // As soon as the order exists, drop spinner (avoids “stuck loading” if open() lags; checkout is its own UI).
+        onOrderReady: () => setOrderLoading(false),
+        onCheckoutOpen: () => setOrderLoading(false),
         onSuccess: async (paymentData) => {
-          setLoading(true);
+          setOrderLoading(true);
           try {
             const result = await updateSubscription(SOCIETRACK_PLAN_ID, paymentData);
             if (result.success) {
@@ -45,17 +53,23 @@ const Subscribe = () => {
               toast.error(result.error || 'Could not confirm payment with server');
             }
           } finally {
-            setLoading(false);
+            setOrderLoading(false);
+            setPayFlow(false);
+            payLockRef.current = false;
           }
         },
         onFailure: (error) => {
           toast.error(error.message || 'Payment failed');
-          setLoading(false);
+          setOrderLoading(false);
+          setPayFlow(false);
+          payLockRef.current = false;
         },
       });
     } catch (error) {
       toast.error(error.message || 'Something went wrong');
-      setLoading(false);
+      setOrderLoading(false);
+      setPayFlow(false);
+      payLockRef.current = false;
     }
   };
 
@@ -161,7 +175,8 @@ const Subscribe = () => {
             variant="primary"
             size="lg"
             fullWidth
-            loading={loading}
+            disabled={payFlow}
+            loading={orderLoading}
             onClick={handleSubscribe}
             icon={CreditCard}
           >
