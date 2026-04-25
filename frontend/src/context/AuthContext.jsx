@@ -45,6 +45,9 @@ export const AuthProvider = ({ children }) => {
   // for the same user (token refresh, URL hash processing) don't re-trigger
   // a full profile reload and flash the loading screen.
   const loadedUserIdRef = useRef(null);
+  /** For async follow-ups (e.g. background profile fetch) to avoid applying stale data to a different user. */
+  const userRef = useRef(null);
+  userRef.current = user;
   /** Prevents concurrent loadUserProfile(userId) for the same user (initAuth + SIGNED_IN race). */
   const profileLoadLockRef = useRef(null);
 
@@ -69,6 +72,15 @@ export const AuthProvider = ({ children }) => {
       if (apt !== undefined) localStorage.setItem(APARTMENT_CACHE_KEY, JSON.stringify(apt));
     } catch {
       // ignore quota/serialization errors
+    }
+  };
+
+  const clearLocalProfileCache = () => {
+    try {
+      localStorage.removeItem(PROFILE_CACHE_KEY);
+      localStorage.removeItem(APARTMENT_CACHE_KEY);
+    } catch {
+      // ignore
     }
   };
 
@@ -477,7 +489,9 @@ export const AuthProvider = ({ children }) => {
         .eq('id', userId)
         .maybeSingle();
       
-      if (!profileError && profile) {
+      if (profileError || !profile) return;
+      if (userRef.current?.id !== userId) return;
+
         let activeApartment = null;
         if (profile?.apartment_id) {
           try {
@@ -493,8 +507,15 @@ export const AuthProvider = ({ children }) => {
         }
         
         writeCachedProfile(profile, activeApartment);
-        console.log('[fetchProfileInBackground] cache updated');
-      }
+        console.log('[fetchProfileInBackground] cache updated, syncing React state');
+        if (userRef.current?.id !== userId) return;
+        setUserProfile(profile);
+        if (profile.role === 'super_admin') {
+          setIsSuperAdmin(true);
+        } else {
+          setIsSuperAdmin(false);
+          setApartment(activeApartment);
+        }
     } catch (error) {
       console.log('[fetchProfileInBackground] background update failed:', error);
     }
@@ -510,9 +531,10 @@ export const AuthProvider = ({ children }) => {
     await loadUserProfile(user.id);
   };
 
-  const refreshUserProfile = async () => {
+  const refreshUserProfile = async (options = {}) => {
     if (!user?.id) return { success: false, error: 'No user' };
     try {
+      if (options.skipCache) clearLocalProfileCache();
       await loadUserProfile(user.id);
       return { success: true };
     } catch (error) {
@@ -1016,6 +1038,17 @@ export const AuthProvider = ({ children }) => {
     const paidStatus = String(apt?.subscription_status || '').toLowerCase() === 'active';
     const paidPlan = String(apt?.plan_name || '').toLowerCase();
     const isPaidPlan = paidStatus && (paidPlan === 'societrack_pro' || ['basic', 'standard', 'premium'].includes(paidPlan));
+    // Active Pro without an end date yet: treat as paid (e.g. row updated before end_date column sync).
+    if (isPaidPlan && !apt.subscription_end_date) {
+      return {
+        valid: true,
+        reason: null,
+        status: 'active',
+        daysLeft: null,
+        adminAccess: 'full',
+        showSubscribeCta: false,
+      };
+    }
     if (isPaidPlan && apt.subscription_end_date) {
       const end = new Date(apt.subscription_end_date);
       end.setHours(0, 0, 0, 0);
@@ -1076,7 +1109,8 @@ export const AuthProvider = ({ children }) => {
         razorpay_payment_id: paymentData.razorpay_payment_id,
         razorpay_signature: paymentData.razorpay_signature,
       });
-      const r = await refreshUserProfile();
+      // Force a full reload from Supabase; ignore stale localStorage so subscription UI updates immediately.
+      const r = await refreshUserProfile({ skipCache: true });
       return { success: r?.success !== false };
     } catch (error) {
       console.error('[updateSubscription]', error);
