@@ -9,7 +9,8 @@ from app.api.razorpay_payments import router as razorpay_router
 from app.api.maintenance_rollover import router as maintenance_rollover_router
 
 
-app = FastAPI(title=settings.app_name)
+# redirect_slashes=True can issue redirects that confuse some clients; POST+payment must stay on one path.
+app = FastAPI(title=settings.app_name, redirect_slashes=False)
 
 app.add_middleware(
     CORSMiddleware,

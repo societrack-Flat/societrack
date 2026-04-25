@@ -25,6 +25,12 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/payments/razorpay", tags=["payments-razorpay"])
 
 
+@router.get("/_ping")
+def razorpay_router_ping() -> dict:
+    """Unauthenticated. Use to verify the browser / curl hits this API (not a 405 from another layer)."""
+    return {"ok": True, "service": "razorpay"}
+
+
 def _user_id(claims: dict) -> str:
     uid = claims.get("sub")
     if not uid:
