@@ -4,6 +4,7 @@ import uuid
 from datetime import date, timedelta
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -75,11 +76,44 @@ def _is_apartment_admin(user_row: dict, apartment_id: str) -> bool:
     return str(user_row.get("role") or "").lower() == "admin"
 
 
+def _supabase_unavailable_message(exc: Exception) -> str:
+    """Safe operator-facing text; never log full JWT. Details go to app logs."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        sc = exc.response.status_code
+        if sc in (401, 403):
+            return (
+                f"Supabase returned HTTP {sc}. The API must use the service role key: "
+                "set SUPABASE_SERVICE_ROLE_KEY in Azure (not the anon key)."
+            )
+        if sc == 404:
+            return (
+                f"Supabase returned HTTP 404. Check SUPABASE_URL points to the same project as the app "
+                "and that the 'users' table is exposed in PostgREST."
+            )
+        return f"Supabase request failed (HTTP {sc})."
+    if isinstance(exc, httpx.RequestError):
+        return "Could not reach Supabase. Check SUPABASE_URL and outbound network from the API host."
+    return "Database unavailable"
+
+
 async def _load_user(user_id: str) -> dict[str, Any] | None:
     try:
         sb = supabase_rest()
+    except RuntimeError as e:
+        log.error("Supabase not configured: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Server configuration: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the API "
+                "environment (e.g. Azure App Service → Configuration → Application settings), then restart."
+            ),
+        ) from e
+    try:
         rows = await sb.get("users", params={"id": f"eq.{user_id}", "select": "*", "limit": 1})
         return rows[0] if rows else None
+    except (httpx.HTTPStatusError, httpx.RequestError) as e:
+        log.exception("load user: %s", e)
+        raise HTTPException(status_code=503, detail=_supabase_unavailable_message(e)) from e
     except Exception as e:
         log.exception("load user: %s", e)
         raise HTTPException(status_code=503, detail="Database unavailable") from e
@@ -109,12 +143,25 @@ async def _apply_pro_subscription(
     if int(amount_paise) != int(plan["amount_paise"]):
         raise HTTPException(status_code=400, detail="Amount mismatch")
 
-    sb = supabase_rest()
+    try:
+        sb = supabase_rest()
+    except RuntimeError as e:
+        log.error("Supabase not configured: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Server configuration: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the API "
+                "environment (e.g. Azure App Service), then restart."
+            ),
+        ) from e
     try:
         rows = await sb.get(
             "apartments",
             params={"id": f"eq.{apartment_id}", "select": "id,last_razorpay_payment_id", "limit": 1},
         )
+    except (httpx.HTTPStatusError, httpx.RequestError) as e:
+        log.exception("Supabase get apartment: %s", e)
+        raise HTTPException(status_code=503, detail=_supabase_unavailable_message(e)) from e
     except Exception as e:
         log.exception("Supabase get apartment: %s", e)
         raise HTTPException(status_code=503, detail="Database unavailable") from e
