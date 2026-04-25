@@ -19,7 +19,7 @@ from app.services.razorpay_client import (
     verify_webhook_signature,
 )
 from app.services.supabase_rest import supabase_rest
-from app.subscription_plans import PLAN_ID, get_plan
+from app.subscription_plans import APARTMENT_PLAN_NAME_DB, PLAN_ID, get_plan
 
 log = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ async def _apply_pro_subscription(
             "apartments",
             params={"id": f"eq.{apartment_id}"},
             json={
-                "plan_name": "societrack_pro",
+                "plan_name": APARTMENT_PLAN_NAME_DB,
                 "subscription_status": "active",
                 "flat_limit": plan["flat_limit"],
                 "monthly_price": plan["monthly_rupees"],
