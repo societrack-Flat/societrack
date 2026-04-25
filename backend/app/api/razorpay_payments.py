@@ -76,6 +76,18 @@ def _is_apartment_admin(user_row: dict, apartment_id: str) -> bool:
     return str(user_row.get("role") or "").lower() == "admin"
 
 
+def _postgrest_error_message(response: httpx.Response) -> str | None:
+    """Supabase/PostgREST returns JSON with a `message` field on errors."""
+    try:
+        j = response.json()
+        if isinstance(j, dict) and j.get("message"):
+            return str(j["message"])
+    except Exception:
+        pass
+    t = (response.text or "").strip()
+    return t[:500] if t else None
+
+
 def _supabase_unavailable_message(exc: Exception) -> str:
     """Safe operator-facing text; never log full JWT. Details go to app logs."""
     if isinstance(exc, httpx.HTTPStatusError):
@@ -190,6 +202,22 @@ async def _apply_pro_subscription(
                 "last_razorpay_payment_id": str(payment_id),
             },
         )
+    except httpx.HTTPStatusError as e:
+        pmsg = _postgrest_error_message(e.response)
+        log.exception("Supabase update apartment HTTP %s: %s", e.response.status_code, pmsg or e)
+        extra = f" {pmsg}" if pmsg else ""
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Could not update subscription in the database after a valid payment. "
+                f"Check Supabase (run apartment migrations, table public.apartments).{extra}"
+            ),
+        ) from e
+    except httpx.RequestError as e:
+        log.exception("Supabase update apartment: %s", e)
+        raise HTTPException(
+            status_code=503, detail=_supabase_unavailable_message(e) or "Database unavailable"
+        ) from e
     except Exception as e:
         log.exception("Supabase update apartment: %s", e)
         raise HTTPException(
