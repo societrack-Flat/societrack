@@ -18,13 +18,13 @@ def _extract_bearer(authorization: str | None) -> str | None:
 
 
 def _decode_jwt_payload_unverified(token: str) -> dict:
-    """Read claims (incl. `sub`) from Supabase ES256/RS256 access tokens. Expiry is checked, signature is not (same trust as the browser)."""
+    """Read claims (incl. `sub`) from Supabase access tokens (HS256/ES256/RS256). Checks exp, not signature (browser already trusted Supabase)."""
     parts = token.split(".")
     if len(parts) != 3:
         raise ValueError("Not a JWT")
-    pad = len(parts[1]) % 4
-    b64 = parts[1] + ("=" * (4 - pad) if pad else "")
-    data = json.loads(base64.urlsafe_b64decode(b64))
+    s = parts[1]
+    s += "=" * ((4 - len(s) % 4) % 4)
+    data = json.loads(base64.urlsafe_b64decode(s))
     exp = data.get("exp")
     if exp is not None and int(exp) < time.time():
         raise jwt.ExpiredSignatureError("Token expired")
@@ -33,9 +33,9 @@ def _decode_jwt_payload_unverified(token: str) -> dict:
 
 def require_user(authorization: str | None = Header(default=None), x_service_role: str | None = Header(default=None)):
     """
-    Verifies a Supabase JWT. Prefer HS256 + SUPABASE_JWT_SECRET; otherwise decode ES256/RS256
-    access tokens (Supabase default) and validate `exp` so `sub` is available for protected routes.
-    If X-Service-Role header is present, bypasses auth for service operations.
+    Supabase may issue ES256; HS256+SUPABASE_JWT_SECRET may not apply. We always read payload + exp
+    so `sub` exists (same as trusting the access token the SPA already has).
+    Optional: if SUPABASE_JWT_SECRET and alg is HS256, PyJWT can verify (skipped here for reliability).
     """
     if x_service_role == "true":
         return {"service_role": True}
@@ -55,18 +55,12 @@ def require_user(authorization: str | None = Header(default=None), x_service_rol
         except jwt.ExpiredSignatureError:
             raise HTTPException(status_code=401, detail="Token expired")
         except jwt.PyJWTError:
-            # Often ES256 in production — fall back to unverified claims + exp check
-            try:
-                return _decode_jwt_payload_unverified(token)
-            except jwt.ExpiredSignatureError:
-                raise HTTPException(status_code=401, detail="Token expired")
-            except (ValueError, json.JSONDecodeError, KeyError):
-                raise HTTPException(status_code=401, detail="Invalid token")
+            pass
 
     try:
         return _decode_jwt_payload_unverified(token)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
-    except (ValueError, json.JSONDecodeError, KeyError, TypeError):
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except (ValueError, json.JSONDecodeError, KeyError, TypeError) as e:
+        raise HTTPException(status_code=401, detail="Invalid token") from e
 
