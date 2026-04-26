@@ -196,79 +196,6 @@ const Maintenance = () => {
     }
   };
 
-  const handleBulkMarkPaid = async () => {
-    const pendingItems = maintenance.filter(m => m.status === 'pending');
-    
-    if (pendingItems.length === 0) {
-      toast.error('No pending maintenance to mark as paid');
-      return;
-    }
-
-    const amount = prompt(`Enter maintenance amount for all ${pendingItems.length} pending flats:`);
-    
-    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
-      toast.error('Invalid amount');
-      return;
-    }
-
-    if (!confirm(`Mark all ${pendingItems.length} pending flats as paid with ${formatCurrency(amount)} each?`)) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const today = new Date().toISOString().split('T')[0];
-
-      // Create maintenance records
-      const maintenanceRecords = pendingItems.map(item => ({
-        apartment_id: apartment.id,
-        flat_id: item.flat_id,
-        month: selectedMonth,
-        year: selectedYear,
-        amount: parseFloat(amount),
-        paid_amount: parseFloat(amount),
-        status: 'paid',
-        paid_date: today,
-        payment_mode: 'cash',
-      }));
-
-      await supabase
-        .from('maintenance')
-        .upsert(maintenanceRecords, {
-          onConflict: 'apartment_id,flat_id,month,year'
-        });
-
-      // Create income records
-      const incomeRecords = pendingItems.map(item => ({
-        apartment_id: apartment.id,
-        flat_id: item.flat_id,
-        amount: parseFloat(amount),
-        category: 'Maintenance',
-        description: `Maintenance for ${getMonthName(selectedMonth)} ${selectedYear}`,
-        date: today,
-        payment_mode: 'cash',
-        created_by: userProfile.id,
-      }));
-
-      await supabase.from('income').insert(incomeRecords);
-
-      await Promise.all(
-        pendingItems.map((item) =>
-          supabase.from('flats').update({ pending_maintenance: 0 }).eq('id', item.flat_id)
-        )
-      );
-
-      toast.success(`Marked ${pendingItems.length} flats as paid`);
-      fetchFlats();
-      fetchMaintenance();
-    } catch (error) {
-      console.error('Error bulk marking paid:', error);
-      toast.error('Failed to mark as paid');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const filteredMaintenance = maintenance.filter((item) => {
     if (searchTerm === '') return true;
     const q = searchTerm.toLowerCase();
@@ -327,10 +254,19 @@ const Maintenance = () => {
   };
 
   const handleDownloadStatusPdf = () => {
-    if (!filteredMaintenance.length) {
-      toast.error('No rows to export. Add flats or clear the search filter.');
+    const pendingOnly = filteredMaintenance.filter(
+      (r) => String(r.status || '').toLowerCase() === 'pending',
+    );
+    if (!pendingOnly.length) {
+      toast.error('No pending maintenance to export. Clear the search or pick a month with pending rows.');
       return;
     }
+
+    // jsPDF default fonts do not draw ₹ reliably; use ASCII "Rs. " so amounts are never clipped or garbled.
+    const inrForPdf = (n) => {
+      const v = Number(n) || 0;
+      return `Rs. ${v.toLocaleString('en-IN', { maximumFractionDigits: 0, minimumFractionDigits: 0 })}`;
+    };
 
     const periodLabel = `${getMonthName(selectedMonth)} ${selectedYear}`;
     const aptName = apartment?.name || 'Society';
@@ -340,7 +276,7 @@ const Maintenance = () => {
 
     doc.setFontSize(15);
     doc.setTextColor(0);
-    doc.text('Maintenance status report', 14, 16);
+    doc.text('Maintenance status report (pending only)', 14, 16);
     doc.setFontSize(11);
     doc.text(aptName, 14, 24);
     doc.setFontSize(9);
@@ -355,7 +291,7 @@ const Maintenance = () => {
     let sumTotal = 0;
     let sumMonthAmt = 0;
 
-    const body = filteredMaintenance.map((r) => {
+    const body = pendingOnly.map((r) => {
       const f = r.flats || {};
       const m = Number(f.monthly_maintenance ?? 0);
       const p = Number(f.pending_maintenance ?? 0);
@@ -373,13 +309,12 @@ const Maintenance = () => {
       return [
         String(f.flat_number ?? '—'),
         String(f.resident_name || f.owner_name || '—'),
-        String(f.resident_phone || f.owner_phone || '—'),
-        formatCurrency(m),
-        formatCurrency(p),
-        formatCurrency(o),
-        formatCurrency(tot),
+        inrForPdf(m),
+        inrForPdf(p),
+        inrForPdf(o),
+        inrForPdf(tot),
         status,
-        formatCurrency(rec),
+        inrForPdf(rec),
       ];
     });
 
@@ -389,7 +324,6 @@ const Maintenance = () => {
         [
           'Flat',
           'Owner',
-          'Phone',
           'Current month (fee)',
           'Old balance',
           'Other',
@@ -403,29 +337,29 @@ const Maintenance = () => {
         [
           'Totals',
           '',
+          inrForPdf(sumMonthly),
+          inrForPdf(sumArrears),
+          inrForPdf(sumOther),
+          inrForPdf(sumTotal),
           '',
-          formatCurrency(sumMonthly),
-          formatCurrency(sumArrears),
-          formatCurrency(sumOther),
-          formatCurrency(sumTotal),
-          '',
-          formatCurrency(sumMonthAmt),
+          inrForPdf(sumMonthAmt),
         ],
       ],
       theme: 'striped',
-      headStyles: { fillColor: [34, 197, 94], fontSize: 8, cellPadding: 1.2 },
+      tableWidth: pageWidth - 24,
+      margin: { left: 12, right: 12 },
+      headStyles: { fillColor: [34, 197, 94], fontSize: 8, cellPadding: 1.5 },
       footStyles: { fillColor: [254, 243, 199], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 8 },
-      styles: { fontSize: 7.5, cellPadding: 1 },
+      styles: { fontSize: 8, cellPadding: 1.4, minCellHeight: 6 },
       columnStyles: {
-        0: { cellWidth: 16 },
-        1: { cellWidth: 28 },
-        2: { cellWidth: 24 },
-        3: { halign: 'right', cellWidth: 24 },
-        4: { halign: 'right', cellWidth: 22 },
-        5: { halign: 'right', cellWidth: 20 },
-        6: { halign: 'right', cellWidth: 28 },
-        7: { halign: 'center', cellWidth: 18 },
-        8: { halign: 'right', cellWidth: 28 },
+        0: { cellWidth: 20 },
+        1: { cellWidth: 34 },
+        2: { halign: 'right', cellWidth: 32 },
+        3: { halign: 'right', cellWidth: 30 },
+        4: { halign: 'right', cellWidth: 28 },
+        5: { halign: 'right', cellWidth: 32 },
+        6: { halign: 'center', cellWidth: 18 },
+        7: { halign: 'right', cellWidth: 34 },
       },
     });
 
@@ -505,12 +439,6 @@ const Maintenance = () => {
             <Button variant="outline" icon={Download} onClick={handleDownloadOverallFlatPending}>
               Download all flats (totals)
             </Button>
-
-            {stats.pendingCount > 0 && (
-              <Button variant="primary" icon={CheckCircle} onClick={handleBulkMarkPaid}>
-                Mark All Paid
-              </Button>
-            )}
 
             <Button
               variant="outline"

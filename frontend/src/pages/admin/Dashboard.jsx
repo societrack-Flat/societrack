@@ -868,42 +868,6 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              {/* Per-flat maintenance snapshot (current month fee, old balance, other, total) */}
-              {flatMaintenanceRows.length > 0 && (
-                <div className="mb-6 rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-                  <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
-                    <h2 className="text-sm font-semibold text-gray-900">Maintenance by flat (current snapshot)</h2>
-                    <span className="text-xs text-gray-500">Monthly = recurring fee; Old balance = arrears; Total = all three</span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[720px] text-sm">
-                      <thead className="bg-gray-50 text-gray-600 text-xs">
-                        <tr>
-                          <th className="text-left py-2.5 px-3 font-medium">Flat</th>
-                          <th className="text-right py-2.5 px-3 font-medium">Monthly fee</th>
-                          <th className="text-right py-2.5 px-3 font-medium">Old balance</th>
-                          <th className="text-right py-2.5 px-3 font-medium">Other</th>
-                          <th className="text-right py-2.5 px-3 font-medium">Total outstanding</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {flatMaintenanceRows.map((r) => (
-                          <tr key={r.id} className="hover:bg-gray-50/80">
-                            <td className="py-2.5 px-3 font-medium text-gray-900">{r.flat_number}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums">{formatCurrency(r.monthly)}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums text-amber-800">{formatCurrency(r.pending)}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums">{formatCurrency(r.other)}</td>
-                            <td className="py-2.5 px-3 text-right font-semibold tabular-nums text-gray-900">
-                              {formatCurrency(r.total)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
               {/* Latest announcement — card neutral; message body highlighted in red */}
               <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-5 mb-6">
                 <div className="flex items-center justify-between gap-2 mb-3">
