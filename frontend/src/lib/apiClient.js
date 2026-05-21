@@ -59,6 +59,31 @@ const apiCall = async (endpoint, options = {}) => {
   }
 };
 
+/** Admin forgot password (no login required). Server checks users.role = admin before Supabase sends email. */
+export const requestAdminPasswordReset = async (email) => {
+  const url = `${API_BASE_URL}/api/auth/admin-request-password-reset`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: String(email || '').trim() }),
+  });
+  if (!response.ok) {
+    let errBody = {};
+    try {
+      errBody = await response.json();
+    } catch {
+      /* ignore */
+    }
+    const detail = errBody.detail;
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : errBody.message || `HTTP ${response.status}`;
+    throw new Error(msg);
+  }
+  return response.json();
+};
+
 // Auth API
 export const authApi = {
   getProfile: async (userId) => {

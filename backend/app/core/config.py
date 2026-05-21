@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = ""
 
     cors_origins: str = "http://localhost:5173"
+    # Password reset links (must match Supabase Auth redirect URLs)
+    app_public_url: str = ""
 
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
@@ -22,6 +24,12 @@ class Settings(BaseSettings):
 
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def public_site_url(self) -> str:
+        if self.app_public_url.strip():
+            return self.app_public_url.strip().rstrip("/")
+        origins = self.cors_origin_list()
+        return origins[0].rstrip("/") if origins else ""
 
 
 settings = Settings()

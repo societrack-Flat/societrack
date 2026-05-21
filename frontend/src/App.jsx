@@ -10,6 +10,7 @@ import Login from './pages/auth/Login';
 import Signup from './pages/auth/Signup';
 import SuperAdminLogin from './pages/auth/SuperAdminLogin';
 import ResetPassword from './pages/auth/ResetPassword';
+import ForgotPasswordAdmin from './pages/auth/ForgotPasswordAdmin';
 import Subscribe from './pages/Subscribe';
 import PayRazorpay from './pages/PayRazorpay';
 
@@ -233,6 +234,7 @@ function App() {
       <Route path="/privacy" element={<PrivacyPolicy />} />
       <Route path="/terms" element={<TermsOfService />} />
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+      <Route path="/login/forgot-password" element={<PublicRoute><ForgotPasswordAdmin /></PublicRoute>} />
       <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
       <Route path="/superadmin" element={<SuperAdminLogin />} />
       <Route path="/setup-superadmin" element={<Navigate to="/superadmin" replace />} />

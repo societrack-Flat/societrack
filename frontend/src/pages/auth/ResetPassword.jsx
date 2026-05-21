@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Shield, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import toast from 'react-hot-toast';
@@ -33,6 +33,10 @@ const ResetPassword = () => {
   const [show, setShow] = useState(false);
   const [saving, setSaving] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const fromAdmin = searchParams.get('from') === 'admin';
+  const loginPath = fromAdmin ? '/login' : '/superadmin';
+  const loginLabel = fromAdmin ? 'Admin login' : 'Super Admin login';
 
   useEffect(() => {
     const errMsg = parseRecoveryError();
@@ -73,7 +77,7 @@ const ResetPassword = () => {
       if (error) throw error;
       toast.success('Password updated. You can sign in now.');
       await supabase.auth.signOut();
-      navigate('/superadmin', { replace: true });
+      navigate(loginPath, { replace: true });
     } catch (err) {
       toast.error(err.message || 'Could not update password');
     } finally {
@@ -102,13 +106,13 @@ const ResetPassword = () => {
               </div>
             </div>
             <p className="text-xs text-slate-400">
-              Links expire quickly for security. Go back to Super Admin login → Forgot password → use the new email right away on this device.
+              Links expire quickly for security. Request a new link from the login page and open it on this device.
             </p>
             <Link
-              to="/superadmin"
+              to={loginPath}
               className="inline-block w-full text-center py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium"
             >
-              Back to Super Admin login
+              Back to {loginLabel}
             </Link>
           </div>
         ) : !ready ? (
@@ -118,8 +122,8 @@ const ResetPassword = () => {
               If the email link showed “site can’t be reached”, add your app URL to Supabase → Authentication → URL Configuration → Redirect URLs
               (e.g. <code className="text-slate-400">http://localhost:5173/reset-password</code>) and set <code className="text-slate-400">VITE_APP_URL</code> in <code className="text-slate-400">.env</code> to match.
             </p>
-            <Link to="/superadmin" className="text-red-400 hover:text-red-300">
-              ← Super Admin login
+            <Link to={loginPath} className="text-red-400 hover:text-red-300">
+              ← {loginLabel}
             </Link>
           </div>
         ) : (
@@ -177,8 +181,8 @@ const ResetPassword = () => {
         )}
 
         <div className="mt-6 text-center">
-          <Link to="/superadmin" className="text-slate-400 hover:text-white text-sm">
-            ← Super Admin login
+          <Link to={loginPath} className="text-slate-400 hover:text-white text-sm">
+            ← {loginLabel}
           </Link>
         </div>
       </div>
