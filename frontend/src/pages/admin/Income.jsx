@@ -197,7 +197,8 @@ const Income = () => {
     }
 
     const isMaint = formData.category === 'Maintenance';
-    const payTarget = formData.maintenancePaymentTarget === 'arrears' ? 'arrears' : 'current';
+    const payTarget = formData.maintenancePaymentTarget;
+    const isMaintSync = isMaint && formData.flat_id && (payTarget === 'current' || payTarget === 'arrears');
     if (isMaint && !formData.flat_id) {
       toast.error('Select a flat for maintenance payments');
       return;
@@ -234,7 +235,7 @@ const Income = () => {
         date: formData.date,
         payment_mode: formData.payment_mode,
         maintenance_month: mm,
-        maintenance_payment_target: isMaint && formData.flat_id ? payTarget : null,
+        maintenance_payment_target: isMaintSync ? payTarget : null,
         attachment_url: attachmentUrl || editingIncome?.attachment_url,
         attachment_name: attachmentName || editingIncome?.attachment_name,
         created_by: userProfile.id,
@@ -253,7 +254,7 @@ const Income = () => {
         if (error) throw error;
         toast.success('Income added successfully');
 
-        if (isMaint && formData.flat_id) {
+        if (isMaintSync) {
           try {
             await applyMaintenanceIncomeAfterInsert({
               apartmentId: activeApartmentId,
@@ -808,7 +809,7 @@ const Income = () => {
                   type="radio"
                   name="maintenancePaymentTarget"
                   value="current"
-                  checked={formData.maintenancePaymentTarget !== 'arrears'}
+                  checked={formData.maintenancePaymentTarget === 'current'}
                   onChange={handleChange}
                   className="mt-1"
                   disabled={!!editingIncome}
@@ -827,6 +828,18 @@ const Income = () => {
                 />
                 <span>Old balance / arrears — reduces the flat’s pending (arrears) amount</span>
               </label>
+              <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="radio"
+                  name="maintenancePaymentTarget"
+                  value="others"
+                  checked={formData.maintenancePaymentTarget === 'others'}
+                  onChange={handleChange}
+                  className="mt-1"
+                  disabled={!!editingIncome}
+                />
+                <span>Others — record income only, no maintenance update</span>
+              </label>
             </div>
           )}
 
@@ -837,8 +850,8 @@ const Income = () => {
               name="maintenanceYear"
               value={formData.maintenanceYear}
               onChange={handleChange}
-              required={!(formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'arrears')}
-              disabled={formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'arrears'}
+              required={formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'current'}
+              disabled={formData.category === 'Maintenance' && formData.maintenancePaymentTarget !== 'current'}
               options={getMaintenanceYearOptions()}
             />
             <InputField
@@ -847,8 +860,8 @@ const Income = () => {
               name="maintenanceMonth"
               value={formData.maintenanceMonth}
               onChange={handleChange}
-              required={!(formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'arrears')}
-              disabled={formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'arrears'}
+              required={formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'current'}
+              disabled={formData.category === 'Maintenance' && formData.maintenancePaymentTarget !== 'current'}
               options={CALENDAR_MONTH_OPTIONS}
             />
           </div>

@@ -560,7 +560,8 @@ const Dashboard = () => {
       return;
     }
     const isMaint = receiptForm.category === 'Maintenance';
-    const payTarget = receiptForm.maintenancePaymentTarget === 'arrears' ? 'arrears' : 'current';
+    const payTarget = receiptForm.maintenancePaymentTarget;
+    const isMaintSync = isMaint && receiptForm.flat_id && (payTarget === 'current' || payTarget === 'arrears');
     if (isMaint && !receiptForm.flat_id) {
       toast.error('Select a flat for maintenance payments');
       return;
@@ -593,14 +594,14 @@ const Dashboard = () => {
         date: receiptForm.date,
         payment_mode: receiptForm.payment_mode,
         maintenance_month: mm,
-        maintenance_payment_target: isMaint && receiptForm.flat_id ? payTarget : null,
+        maintenance_payment_target: isMaintSync ? payTarget : null,
         attachment_url: attachmentUrl,
         attachment_name: attachmentName,
         created_by: userProfile.id,
       };
       const { error } = await supabase.from('income').insert(row);
       if (error) throw error;
-      if (isMaint && row.flat_id) {
+      if (isMaintSync) {
         try {
           await applyMaintenanceIncomeAfterInsert({
             apartmentId: activeApartmentId,
@@ -1065,7 +1066,7 @@ const Dashboard = () => {
                           type="radio"
                           name="maintenancePaymentTarget"
                           value="current"
-                          checked={receiptForm.maintenancePaymentTarget !== 'arrears'}
+                          checked={receiptForm.maintenancePaymentTarget === 'current'}
                           onChange={handleReceiptChange}
                           className="mt-1"
                         />
@@ -1082,6 +1083,17 @@ const Dashboard = () => {
                         />
                         <span>Old balance / arrears — reduces the flat’s pending (arrears) amount</span>
                       </label>
+                      <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="maintenancePaymentTarget"
+                          value="others"
+                          checked={receiptForm.maintenancePaymentTarget === 'others'}
+                          onChange={handleReceiptChange}
+                          className="mt-1"
+                        />
+                        <span>Others — record income only, no maintenance update</span>
+                      </label>
                     </div>
                   )}
 
@@ -1092,8 +1104,8 @@ const Dashboard = () => {
                       type="select"
                       value={receiptForm.maintenanceYear}
                       onChange={handleReceiptChange}
-                      required={!(receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'arrears')}
-                      disabled={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'arrears'}
+                      required={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'current'}
+                      disabled={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget !== 'current'}
                       options={getMaintenanceYearOptions()}
                     />
                     <InputField
@@ -1102,8 +1114,8 @@ const Dashboard = () => {
                       type="select"
                       value={receiptForm.maintenanceMonth}
                       onChange={handleReceiptChange}
-                      required={!(receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'arrears')}
-                      disabled={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'arrears'}
+                      required={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'current'}
+                      disabled={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget !== 'current'}
                       options={CALENDAR_MONTH_OPTIONS}
                     />
                   </div>
