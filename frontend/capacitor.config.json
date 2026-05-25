@@ -1,0 +1,8 @@
+{
+  "appId": "com.societrack.app",
+  "appName": "Societrack",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

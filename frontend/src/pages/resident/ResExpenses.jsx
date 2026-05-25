@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Receipt, Search, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { supabase, formatCurrency, formatDate, getSignedUrl } from '../../lib/supabaseClient';
+import { supabase, formatCurrency, formatDate } from '../../lib/supabaseClient';
+import { openAttachment } from '../../lib/openAttachment';
 import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
 import EmptyState from '../../components/EmptyState';
@@ -47,13 +48,10 @@ const ResExpenses = () => {
 
   const handleViewAttachment = async (attachmentUrl) => {
     try {
-      const signedUrl = await getSignedUrl(attachmentUrl);
-      if (signedUrl) {
-        window.open(signedUrl, '_blank');
-      }
+      await openAttachment(attachmentUrl);
     } catch (error) {
       console.error('Error viewing attachment:', error);
-      toast.error('Failed to view attachment');
+      toast.error(error?.message || 'Failed to view attachment');
     }
   };
 

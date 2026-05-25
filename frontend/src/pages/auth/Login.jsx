@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Phone, Lock, Eye, EyeOff, User, Building2, Home } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
+import { isNativeApp, signInWithOAuthNative } from '../../lib/mobileOAuth';
 import toast from 'react-hot-toast';
 import BrandLogo from '../../components/BrandLogo';
 
@@ -286,7 +287,34 @@ const Login = () => {
   });
 
   const navigate = useNavigate();
-  const { signInWithEmail, signInWithPhone, signInAsResident } = useAuth();
+  const { signInWithEmail, signInWithPhone, signInAsResident, completeOAuthSignIn } = useAuth();
+
+  const routeAfterLogin = (profile) => {
+    const role = profile?.role;
+    if (role === 'super_admin') navigate('/superadmin/dashboard', { replace: true });
+    else if (role === 'admin') navigate('/admin/dashboard', { replace: true });
+    else if (role === 'resident') navigate('/resident/dashboard', { replace: true });
+    else navigate('/signup', { replace: true });
+    setLoginSuccess(true);
+  };
+
+  const handleNativeOAuthLogin = async (provider) => {
+    setLoading(true);
+    try {
+      const { error } = await signInWithOAuthNative(provider);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const result = await completeOAuthSignIn();
+        if (result.success) routeAfterLogin(result.profile);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -307,12 +335,7 @@ const Login = () => {
         return;
       }
 
-      const role = result.profile?.role;
-      if (role === 'super_admin') navigate('/superadmin/dashboard', { replace: true });
-      else if (role === 'admin') navigate('/admin/dashboard', { replace: true });
-      else if (role === 'resident') navigate('/resident/dashboard', { replace: true });
-      else navigate('/signup', { replace: true });
-      setLoginSuccess(true);
+      routeAfterLogin(result.profile);
     } catch {
       toast.error('Login failed');
     } finally {
@@ -338,6 +361,10 @@ const Login = () => {
   };
 
   const handleGoogleLogin = async () => {
+    if (isNativeApp()) {
+      await handleNativeOAuthLogin('google');
+      return;
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${window.location.origin}/login` },
@@ -346,6 +373,10 @@ const Login = () => {
   };
 
   const handleAppleLogin = async () => {
+    if (isNativeApp()) {
+      await handleNativeOAuthLogin('apple');
+      return;
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'apple',
       options: { redirectTo: `${window.location.origin}/login` },

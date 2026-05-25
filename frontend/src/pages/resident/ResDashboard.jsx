@@ -11,7 +11,8 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { supabase, formatCurrency, getSignedUrl, formatDate } from '../../lib/supabaseClient';
+import { supabase, formatCurrency, formatDate } from '../../lib/supabaseClient';
+import { openAttachment } from '../../lib/openAttachment';
 import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
 import toast from 'react-hot-toast';
@@ -395,11 +396,10 @@ const ResDashboard = () => {
   const handleViewBill = async (attachmentUrl) => {
     if (!attachmentUrl) return;
     try {
-      const url = await getSignedUrl(attachmentUrl);
-      if (url) window.open(url, '_blank');
+      await openAttachment(attachmentUrl);
     } catch (e) {
       console.error(e);
-      toast.error('Could not open bill');
+      toast.error(e?.message || 'Could not open bill');
     }
   };
 

@@ -99,6 +99,13 @@ async def admin_request_password_reset(body: AdminForgotPasswordIn) -> dict:
     if not base:
         raise HTTPException(status_code=503, detail="APP_PUBLIC_URL or CORS_ORIGINS must be set on the API")
 
+    # Use site origin only (avoid APP_PUBLIC_URL accidentally including /login)
+    from urllib.parse import urlparse
+
+    parsed = urlparse(base if "://" in base else f"https://{base}")
+    if parsed.netloc:
+        base = f"{parsed.scheme}://{parsed.netloc}"
+
     redirect_to = f"{base}/reset-password?from=admin"
 
     try:

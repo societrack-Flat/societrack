@@ -361,6 +361,17 @@ const Maintenance = () => {
         6: { halign: 'center', cellWidth: 18 },
         7: { halign: 'right', cellWidth: 34 },
       },
+      didParseCell: (data) => {
+        if (data.section !== 'foot') return;
+        const idx = data.column.index;
+        if (idx >= 2 && idx <= 5) {
+          data.cell.styles.halign = 'right';
+        } else if (idx === 7) {
+          data.cell.styles.halign = 'right';
+        } else if (idx === 0) {
+          data.cell.styles.halign = 'left';
+        }
+      },
     });
 
     const pageCount = doc.internal.getNumberOfPages();

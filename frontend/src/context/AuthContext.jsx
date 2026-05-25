@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { supabase, getPublicSiteUrl } from '../lib/supabaseClient';
+import { Capacitor } from '@capacitor/core';
+import { registerNativeOAuthCompleteHandler, routeAfterNativeOAuth } from '../lib/mobileOAuth';
+import { markPasswordRecoveryPending } from '../lib/passwordRecovery';
 import { paymentsApi } from '../lib/apiClient';
 import { SOCIETRACK_PLAN_ID } from '../lib/razorpay';
 
@@ -225,6 +228,10 @@ export const AuthProvider = ({ children }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
 
+      if (event === 'PASSWORD_RECOVERY') {
+        markPasswordRecoveryPending();
+      }
+
       if (event === 'SIGNED_IN' && session?.user) {
         // If this is the same user already loaded (e.g. token refresh, URL hash processing,
         // or duplicate SIGNED_IN after initAuth), skip the reload to avoid blanking the page.
@@ -262,6 +269,23 @@ export const AuthProvider = ({ children }) => {
       subscription.unsubscribe();
       clearTimeout(timeout);
     };
+  }, []);
+
+  const completeOAuthSignInRef = useRef(null);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    return registerNativeOAuthCompleteHandler(async () => {
+      const complete = completeOAuthSignInRef.current;
+      if (!complete) return;
+      const result = await complete();
+      if (!result.success) {
+        toast.error(result.error?.message || 'Sign-in failed');
+        return;
+      }
+      routeAfterNativeOAuth(result.profile);
+    });
   }, []);
 
   const loadUserProfile = async (userId) => {
@@ -658,6 +682,42 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  /** After native Google/Apple OAuth — load session + profile and return role for routing. */
+  const completeOAuthSignIn = async () => {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) throw error;
+      if (!session?.user) {
+        return { success: false, error: new Error('Sign-in did not complete. Please try again.') };
+      }
+
+      setUser(session.user);
+
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      if (profile) {
+        await loadUserProfile(session.user.id);
+      } else {
+        setUserProfile(null);
+        setApartment(null);
+        setProfileLoaded(true);
+        setLoading(false);
+      }
+
+      return { success: true, profile: profile || null };
+    } catch (error) {
+      toast.error(error.message || 'Sign-in failed');
+      return { success: false, error };
+    }
+  };
+  completeOAuthSignInRef.current = completeOAuthSignIn;
+
   const signUp = async (email, password, metadata = {}) => {
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -875,6 +935,7 @@ export const AuthProvider = ({ children }) => {
         apartment_id: settings.apartment_id,
         apartment_name: settings.apartments?.name || 'Apartment',
         username: username,
+        viewer_password: password,
         permissions: {
           allow_income_view: settings.allow_income_view,
           allow_expense_view: settings.allow_expense_view,
@@ -1140,6 +1201,7 @@ export const AuthProvider = ({ children }) => {
     setActiveApartment,
     signInWithEmail,
     signInWithPhone,
+    completeOAuthSignIn,
     signUp,
     completeSetup,
     signOut,

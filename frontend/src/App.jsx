@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
+import { isPasswordRecoveryPending } from './lib/passwordRecovery';
 
 // Pages
 import Landing from './pages/Landing';
@@ -189,9 +190,40 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   return children;
 };
 
+const PASSWORD_RECOVERY_FLAG = 'societrack_password_recovery';
+
+export const markPasswordRecoveryPending = () => {
+  try {
+    sessionStorage.setItem(PASSWORD_RECOVERY_FLAG, '1');
+  } catch {
+    /* ignore */
+  }
+};
+
+export const clearPasswordRecoveryPending = () => {
+  try {
+    sessionStorage.removeItem(PASSWORD_RECOVERY_FLAG);
+  } catch {
+    /* ignore */
+  }
+};
+
+export const isPasswordRecoveryPending = () => {
+  try {
+    return sessionStorage.getItem(PASSWORD_RECOVERY_FLAG) === '1';
+  } catch {
+    return false;
+  }
+};
+
 const PublicRoute = ({ children }) => {
   const { user, userProfile, profileLoaded, isResident, bootstrapError, retryBootstrap } = useAuth();
   const location = useLocation();
+
+  const recoveryFlow =
+    location.pathname === '/reset-password' ||
+    (typeof window !== 'undefined' && window.location.hash.includes('type=recovery')) ||
+    isPasswordRecoveryPending();
 
   if (isResident) return <Navigate to="/resident/dashboard" replace />;
 
@@ -213,7 +245,7 @@ const PublicRoute = ({ children }) => {
   const onLoginOrSignup = location.pathname === '/login' || location.pathname === '/signup';
   if (user && !profileLoaded && !bootstrapError && !onLoginOrSignup) return <LoadingScreen />;
 
-  if (user && userProfile) {
+  if (user && userProfile && !recoveryFlow) {
     if (userProfile.role === 'super_admin') return <Navigate to="/superadmin/dashboard" replace />;
     return <Navigate to="/admin/dashboard" replace />;
   }

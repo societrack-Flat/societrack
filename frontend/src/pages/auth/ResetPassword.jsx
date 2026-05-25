@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Shield, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
+import { markPasswordRecoveryPending, clearPasswordRecoveryPending } from '../../lib/passwordRecovery';
 import toast from 'react-hot-toast';
 
 function parseRecoveryError() {
@@ -48,15 +49,41 @@ const ResetPassword = () => {
     }
 
     const hashRaw = window.location.hash?.replace(/^#/, '') || '';
-    if (hashRaw.includes('type=recovery')) setReady(true);
+    const queryParams = new URLSearchParams(window.location.search);
+    const hasRecoveryHash = hashRaw.includes('type=recovery');
+    const hasRecoveryCode = queryParams.has('code');
+
+    if (hasRecoveryHash) {
+      markPasswordRecoveryPending();
+      setReady(true);
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setReady(true);
+      if (event === 'PASSWORD_RECOVERY') {
+        markPasswordRecoveryPending();
+        setReady(true);
+      }
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) setReady(true);
-    });
+    const finishReady = () => {
+      markPasswordRecoveryPending();
+      setReady(true);
+    };
+
+    if (hasRecoveryCode) {
+      supabase.auth.exchangeCodeForSession(queryParams.get('code')).then(({ error }) => {
+        if (error) {
+          setLinkError(error.message);
+          toast.error(error.message);
+          return;
+        }
+        finishReady();
+      });
+    } else {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) finishReady();
+      });
+    }
 
     return () => subscription.unsubscribe();
   }, []);
@@ -75,6 +102,7 @@ const ResetPassword = () => {
     try {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
+      clearPasswordRecoveryPending();
       toast.success('Password updated. You can sign in now.');
       await supabase.auth.signOut();
       navigate(loginPath, { replace: true });

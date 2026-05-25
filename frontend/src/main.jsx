@@ -6,6 +6,15 @@ import App from './App';
 import { AuthProvider } from './context/AuthContext';
 import './index.css';
 
+/** Supabase recovery emails may land on /login or / with tokens in the hash — send user to reset page. */
+(function redirectPasswordRecoveryLink() {
+  const { pathname, search, hash } = window.location;
+  if (!hash?.includes('type=recovery')) return;
+  if (pathname === '/reset-password') return;
+  const fromAdmin = search.includes('from=admin') || pathname.startsWith('/login') ? '?from=admin' : search || '';
+  window.location.replace(`/reset-password${fromAdmin}${hash}`);
+})();
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
