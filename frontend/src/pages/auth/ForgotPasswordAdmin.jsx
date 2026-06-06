@@ -19,6 +19,11 @@ const ForgotPasswordAdmin = () => {
     }
     setLoading(true);
     try {
+      try {
+        sessionStorage.setItem('societrack_reset_from', 'admin');
+      } catch {
+        /* ignore */
+      }
       await requestAdminPasswordReset(trimmed);
       setSent(true);
       toast.success('Check your email for the reset link');

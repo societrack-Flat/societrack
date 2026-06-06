@@ -287,7 +287,7 @@ const Login = () => {
   });
 
   const navigate = useNavigate();
-  const { signInWithEmail, signInWithPhone, signInAsResident, completeOAuthSignIn } = useAuth();
+  const { signInWithEmail, signInWithPhone, signInAsResident } = useAuth();
 
   const routeAfterLogin = (profile) => {
     const role = profile?.role;
@@ -304,13 +304,9 @@ const Login = () => {
       const { error } = await signInWithOAuthNative(provider);
       if (error) {
         toast.error(error.message);
-        return;
       }
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const result = await completeOAuthSignIn();
-        if (result.success) routeAfterLogin(result.profile);
-      }
+      // Browser opened — same as web redirect. When Google finishes, deep link handler
+      // in AuthContext sets session and navigates to dashboard/signup.
     } finally {
       setLoading(false);
     }

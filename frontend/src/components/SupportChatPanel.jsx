@@ -32,6 +32,8 @@ export default function SupportChatPanel({
   apartmentOptions = [],
   /** Fixed height to align with dashboard chart column; internal message list scrolls */
   dashboardCompact = false,
+  /** Bottom sheet on native app — fills parent height */
+  floatingSheet = false,
 }) {
   const { userProfile } = useAuth();
   const [threadId, setThreadId] = useState(null);
@@ -274,9 +276,11 @@ export default function SupportChatPanel({
 
   const shellClassName = [
     'bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col min-h-0 overflow-hidden',
-    dashboardCompact
-      ? 'h-full min-h-[360px] lg:min-h-0'
-      : 'h-[min(440px,75vh)] max-h-[520px]',
+    floatingSheet
+      ? 'h-full min-h-[360px] border-0 shadow-none rounded-t-xl'
+      : dashboardCompact
+        ? 'h-full min-h-[360px] lg:min-h-0'
+        : 'h-[min(440px,75vh)] max-h-[520px]',
   ].join(' ');
 
   return (

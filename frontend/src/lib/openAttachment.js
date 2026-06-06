@@ -1,6 +1,9 @@
+import { Browser } from '@capacitor/browser';
 import { getSignedUrl } from './supabaseClient';
+import { getApiBaseUrl } from './apiBaseUrl';
+import { isNativeApp } from './nativeApp';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = getApiBaseUrl();
 
 function readResidentSession() {
   try {
@@ -11,14 +14,15 @@ function readResidentSession() {
   }
 }
 
-function isMobileDevice() {
-  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
-}
-
-/** Open a URL in a way that works on phone browsers (window.open is often blocked). */
-export function openUrlInBrowser(url) {
+/** Open a URL in a way that works on phone browsers and the Android app. */
+export async function openUrlInBrowser(url) {
   if (!url) return;
-  if (isMobileDevice()) {
+  if (isNativeApp()) {
+    await Browser.open({ url });
+    return;
+  }
+  const isMobileDevice = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+  if (isMobileDevice) {
     window.location.assign(url);
     return;
   }
@@ -71,9 +75,9 @@ export async function resolveAttachmentUrl(attachmentPath) {
   return getSignedUrl(attachmentPath);
 }
 
-/** Open an income/expense attachment (works on laptop and phone). */
+/** Open an income/expense attachment (works on laptop, phone browser, and Android app). */
 export async function openAttachment(attachmentPath) {
   const url = await resolveAttachmentUrl(attachmentPath);
   if (!url) throw new Error('Could not get attachment link');
-  openUrlInBrowser(url);
+  await openUrlInBrowser(url);
 }

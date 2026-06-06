@@ -4,16 +4,40 @@ import { BrowserRouter } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import App from './App';
 import { AuthProvider } from './context/AuthContext';
+import { isNativeApp } from './lib/nativeApp';
 import './index.css';
 
-/** Supabase recovery emails may land on /login or / with tokens in the hash — send user to reset page. */
+/** Supabase recovery emails may land on /, /login, or elsewhere — send user to reset page. */
 (function redirectPasswordRecoveryLink() {
   const { pathname, search, hash } = window.location;
-  if (!hash?.includes('type=recovery')) return;
   if (pathname === '/reset-password') return;
-  const fromAdmin = search.includes('from=admin') || pathname.startsWith('/login') ? '?from=admin' : search || '';
-  window.location.replace(`/reset-password${fromAdmin}${hash}`);
+
+  const params = new URLSearchParams(search);
+  const hasRecoveryCode = params.has('code');
+  const hasRecoveryHash = hash?.includes('type=recovery');
+
+  if (!hasRecoveryCode && !hasRecoveryHash) return;
+
+  const qs = new URLSearchParams(search);
+  if (!qs.has('from') && pathname.startsWith('/login')) {
+    qs.set('from', 'admin');
+  }
+  const query = qs.toString() ? `?${qs.toString()}` : '';
+
+  if (hasRecoveryHash) {
+    window.location.replace(`/reset-password${query}${hash}`);
+    return;
+  }
+
+  if (hasRecoveryCode) {
+    window.location.replace(`/reset-password${query}`);
+  }
 })();
+
+/** Android/iOS app opens at / — send straight to login (no marketing landing page). */
+if (isNativeApp() && (window.location.pathname === '/' || window.location.pathname === '')) {
+  window.history.replaceState(null, '', '/login');
+}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

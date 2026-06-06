@@ -35,7 +35,9 @@ const ResetPassword = () => {
   const [saving, setSaving] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const fromAdmin = searchParams.get('from') === 'admin';
+  const fromAdmin =
+    searchParams.get('from') === 'admin' ||
+    (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('societrack_reset_from') === 'admin');
   const loginPath = fromAdmin ? '/login' : '/superadmin';
   const loginLabel = fromAdmin ? 'Admin login' : 'Super Admin login';
 
@@ -53,9 +55,29 @@ const ResetPassword = () => {
     const hasRecoveryHash = hashRaw.includes('type=recovery');
     const hasRecoveryCode = queryParams.has('code');
 
-    if (hasRecoveryHash) {
+    const finishReady = () => {
       markPasswordRecoveryPending();
       setReady(true);
+    };
+
+    if (hasRecoveryHash) {
+      const hashParams = new URLSearchParams(hashRaw);
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+      if (accessToken && refreshToken) {
+        supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }).then(({ error }) => {
+          if (error) {
+            setLinkError(error.message);
+            toast.error(error.message);
+            return;
+          }
+          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+          finishReady();
+        });
+      } else {
+        markPasswordRecoveryPending();
+        setReady(true);
+      }
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
@@ -65,12 +87,9 @@ const ResetPassword = () => {
       }
     });
 
-    const finishReady = () => {
-      markPasswordRecoveryPending();
-      setReady(true);
-    };
-
-    if (hasRecoveryCode) {
+    if (hasRecoveryHash && hashRaw.includes('access_token')) {
+      // setSession handled above
+    } else if (hasRecoveryCode) {
       supabase.auth.exchangeCodeForSession(queryParams.get('code')).then(({ error }) => {
         if (error) {
           setLinkError(error.message);
@@ -103,6 +122,11 @@ const ResetPassword = () => {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
       clearPasswordRecoveryPending();
+      try {
+        sessionStorage.removeItem('societrack_reset_from');
+      } catch {
+        /* ignore */
+      }
       toast.success('Password updated. You can sign in now.');
       await supabase.auth.signOut();
       navigate(loginPath, { replace: true });

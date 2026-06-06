@@ -2,6 +2,8 @@ import React from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import { isPasswordRecoveryPending } from './lib/passwordRecovery';
+import { isNativeApp } from './lib/nativeApp';
+import NativeNavigationBridge from './components/NativeNavigationBridge';
 
 // Pages
 import Landing from './pages/Landing';
@@ -113,6 +115,12 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     );
   }
 
+  // Resident sessions don't use Supabase — skip global auth bootstrap spinner.
+  if (isResident) {
+    if (allowedRoles.includes('resident')) return children;
+    return <Navigate to="/resident/dashboard" replace />;
+  }
+
   // Wait until auth check + profile load are complete
   if (loading) {
     console.log('[ProtectedRoute] showing loading (loading=true)');
@@ -134,12 +142,6 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   }
 
   console.log('[ProtectedRoute] proceeding to route protection');
-
-  // Resident session
-  if (isResident) {
-    if (allowedRoles.includes('resident')) return children;
-    return <Navigate to="/resident/dashboard" replace />;
-  }
 
   // Not logged in
   if (!user) {
@@ -190,31 +192,9 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   return children;
 };
 
-const PASSWORD_RECOVERY_FLAG = 'societrack_password_recovery';
+const RootPage = () => (isNativeApp() ? <Navigate to="/login" replace /> : <Landing />);
 
-export const markPasswordRecoveryPending = () => {
-  try {
-    sessionStorage.setItem(PASSWORD_RECOVERY_FLAG, '1');
-  } catch {
-    /* ignore */
-  }
-};
-
-export const clearPasswordRecoveryPending = () => {
-  try {
-    sessionStorage.removeItem(PASSWORD_RECOVERY_FLAG);
-  } catch {
-    /* ignore */
-  }
-};
-
-export const isPasswordRecoveryPending = () => {
-  try {
-    return sessionStorage.getItem(PASSWORD_RECOVERY_FLAG) === '1';
-  } catch {
-    return false;
-  }
-};
+const NotFoundRedirect = () => <Navigate to={isNativeApp() ? '/login' : '/'} replace />;
 
 const PublicRoute = ({ children }) => {
   const { user, userProfile, profileLoaded, isResident, bootstrapError, retryBootstrap } = useAuth();
@@ -223,6 +203,7 @@ const PublicRoute = ({ children }) => {
   const recoveryFlow =
     location.pathname === '/reset-password' ||
     (typeof window !== 'undefined' && window.location.hash.includes('type=recovery')) ||
+    (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('code')) ||
     isPasswordRecoveryPending();
 
   if (isResident) return <Navigate to="/resident/dashboard" replace />;
@@ -239,11 +220,15 @@ const PublicRoute = ({ children }) => {
     );
   }
 
-  // Avoid flashing /signup while the profile row is still loading after session restore.
-  // Never block /login or /signup: after signup, signOut + navigate can leave stale `user`
-  // with profileLoaded=false briefly — that caused infinite "Loading..." on the login page.
-  const onLoginOrSignup = location.pathname === '/login' || location.pathname === '/signup';
-  if (user && !profileLoaded && !bootstrapError && !onLoginOrSignup) return <LoadingScreen />;
+  // Never block public auth pages: stale session + profile still loading caused infinite spinner
+  // on /login/forgot-password and similar routes in the Android app.
+  const publicAuthPaths = ['/login', '/signup', '/login/forgot-password', '/reset-password'];
+  const onPublicAuthPage = publicAuthPaths.some(
+    (p) => location.pathname === p || location.pathname.startsWith(`${p}/`),
+  );
+  if (user && !profileLoaded && !bootstrapError && !onPublicAuthPage && !recoveryFlow) {
+    return <LoadingScreen />;
+  }
 
   if (user && userProfile && !recoveryFlow) {
     if (userProfile.role === 'super_admin') return <Navigate to="/superadmin/dashboard" replace />;
@@ -260,9 +245,11 @@ const PublicRoute = ({ children }) => {
 
 function App() {
   return (
-    <Routes>
+    <>
+      <NativeNavigationBridge />
+      <Routes>
       {/* Public */}
-      <Route path="/" element={<Landing />} />
+      <Route path="/" element={<RootPage />} />
       <Route path="/privacy" element={<PrivacyPolicy />} />
       <Route path="/terms" element={<TermsOfService />} />
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
@@ -304,8 +291,9 @@ function App() {
       <Route path="/resident/announcements" element={<ProtectedRoute allowedRoles={['resident']}><ResAnnouncements /></ProtectedRoute>} />
 
       {/* Fallback */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFoundRedirect />} />
     </Routes>
+    </>
   );
 }
 

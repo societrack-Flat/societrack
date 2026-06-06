@@ -12,6 +12,7 @@ import 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import societrackLogo from '../../assets/societrack-logo.png';
 import { drawBrandWordmark } from '../../lib/pdfBrand';
+import { downloadXlsx, downloadPdf } from '../../lib/downloadFile';
 
 const toDataUrl = async (url) => {
   const res = await fetch(url);
@@ -119,7 +120,7 @@ const ResReports = () => {
   const flatNumberForIncome = (flatId) =>
     flatId ? flatsById.find((f) => f.id === flatId)?.flat_number || '—' : '—';
 
-  const exportIncomeExcel = () => {
+  const exportIncomeExcel = async () => {
     if (incomeData.length === 0) {
       toast.error('No income data to export');
       return;
@@ -137,11 +138,11 @@ const ResReports = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Income');
     XLSX.utils.sheet_add_aoa(ws, [['', '', '', 'Total:', stats.totalIncome]], { origin: -1 });
-    XLSX.writeFile(wb, `Income_${getMonthName(selectedMonth)}_${selectedYear}.xlsx`);
+    await downloadXlsx(wb, `Income_${getMonthName(selectedMonth)}_${selectedYear}.xlsx`);
     toast.success('Income Excel exported');
   };
 
-  const exportExpenseExcel = () => {
+  const exportExpenseExcel = async () => {
     if (expenseData.length === 0) {
       toast.error('No expense data to export');
       return;
@@ -152,6 +153,7 @@ const ResReports = () => {
       'Category': item.category,
       'Vendor': item.vendor_name || '-',
       'Description': item.description || '-',
+      'Payment Mode': item.payment_mode,
       'Amount': Number(item.amount),
     }));
 
@@ -159,7 +161,7 @@ const ResReports = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Expenses');
     XLSX.utils.sheet_add_aoa(ws, [['', '', '', 'Total:', stats.totalExpenses]], { origin: -1 });
-    XLSX.writeFile(wb, `Expenses_${getMonthName(selectedMonth)}_${selectedYear}.xlsx`);
+    await downloadXlsx(wb, `Expenses_${getMonthName(selectedMonth)}_${selectedYear}.xlsx`);
     toast.success('Expense Excel exported');
   };
 
@@ -243,7 +245,7 @@ const ResReports = () => {
       });
     }
 
-    doc.save(`Resident_Report_${getMonthName(selectedMonth)}_${selectedYear}.pdf`);
+    await downloadPdf(doc, `Resident_Report_${getMonthName(selectedMonth)}_${selectedYear}.pdf`);
     toast.success('PDF exported');
   };
 

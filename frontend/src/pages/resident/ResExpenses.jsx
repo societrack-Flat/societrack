@@ -175,6 +175,7 @@ const ResExpenses = () => {
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Vendor</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Description</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Amount</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Payment</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Attachment</th>
                     </tr>
                   </thead>
@@ -197,6 +198,9 @@ const ResExpenses = () => {
                         </td>
                         <td className="py-3 px-4 text-sm font-semibold text-red-600">
                           {formatCurrency(item.amount)}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600 capitalize">
+                          {item.payment_mode?.replace('_', ' ') || '-'}
                         </td>
                         <td className="py-3 px-4">
                           {item.attachment_url ? (

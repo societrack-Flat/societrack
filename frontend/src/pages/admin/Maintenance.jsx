@@ -12,6 +12,9 @@ import EmptyState from '../../components/EmptyState';
 import toast from 'react-hot-toast';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
 import { maintenanceApi } from '../../lib/apiClient';
+import { autoClosePriorMonths } from '../../lib/maintenanceAutoRollover';
+import { downloadTextFile, downloadPdf } from '../../lib/downloadFile';
+import { dueFromFlat } from '../../utils/maintenancePending';
 
 const Maintenance = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -62,12 +65,6 @@ const Maintenance = () => {
     }
   };
 
-  /** Expected maintenance due for a flat (monthly + arrears + other) — same idea as dashboard “pending maintenance”. */
-  const dueFromFlat = (flat) =>
-    Number(flat?.monthly_maintenance ?? 0) +
-    Number(flat?.pending_maintenance ?? 0) +
-    Number(flat?.other_maintenance ?? 0);
-
   const normalizeFlatForRow = (flat) => ({
     ...flat,
     owner_name: flat.resident_name || flat.owner_name,
@@ -75,7 +72,7 @@ const Maintenance = () => {
   });
 
   const fetchMaintenance = async (flatsList) => {
-    const list = flatsList === undefined ? flats : (flatsList || []);
+    let list = flatsList === undefined ? flats : (flatsList || []);
     if (!list || list.length === 0) {
       setMaintenance([]);
       setStats({ totalFlats: 0, paidCount: 0, pendingCount: 0, pendingAmount: 0 });
@@ -83,6 +80,21 @@ const Maintenance = () => {
     }
     try {
       setLoading(true);
+
+      try {
+        await autoClosePriorMonths(activeApartmentId, selectedYear, selectedMonth);
+        const { data: refreshedFlats, error: flatsErr } = await supabase
+          .from('flats')
+          .select('*')
+          .eq('apartment_id', activeApartmentId)
+          .order('flat_number');
+        if (!flatsErr && refreshedFlats) {
+          list = refreshedFlats;
+          if (flatsList === undefined) setFlats(refreshedFlats);
+        }
+      } catch (rolloverErr) {
+        console.warn('Auto month rollover skipped:', rolloverErr);
+      }
 
       // Fetch existing maintenance records
       const { data: maintenanceData, error } = await supabase
@@ -207,7 +219,7 @@ const Maintenance = () => {
     );
   });
 
-  const handleDownloadOverallFlatPending = () => {
+  const handleDownloadOverallFlatPending = async () => {
     if (!flats.length) {
       toast.error('No flats to export');
       return;
@@ -243,17 +255,14 @@ const Maintenance = () => {
       }),
       ['', '', '', '', '', 'Grand total (all flats)', grand].join(','),
     ];
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `all-flats-pending-and-charges-${apartment?.name?.replace(/\s+/g, '_') || 'society'}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    await downloadTextFile(
+      lines.join('\n'),
+      `all-flats-pending-and-charges-${apartment?.name?.replace(/\s+/g, '_') || 'society'}.csv`,
+    );
     toast.success('Overall pending export started');
   };
 
-  const handleDownloadStatusPdf = () => {
+  const handleDownloadStatusPdf = async () => {
     const pendingOnly = filteredMaintenance.filter(
       (r) => String(r.status || '').toLowerCase() === 'pending',
     );
@@ -382,7 +391,10 @@ const Maintenance = () => {
       doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, pageHeight - 6, { align: 'center' });
     }
 
-    doc.save(`maintenance-status-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.pdf`);
+    await downloadPdf(
+      doc,
+      `maintenance-status-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.pdf`,
+    );
     toast.success('PDF download started');
   };
 

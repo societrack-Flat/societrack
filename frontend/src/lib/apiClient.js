@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient';
+import { getApiBaseUrl } from './apiBaseUrl';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = getApiBaseUrl();
 
 // Get auth token from Supabase (only for authentication)
 const getAuthToken = async () => {
@@ -62,26 +63,36 @@ const apiCall = async (endpoint, options = {}) => {
 /** Admin forgot password (no login required). Server checks users.role = admin before Supabase sends email. */
 export const requestAdminPasswordReset = async (email) => {
   const url = `${API_BASE_URL}/api/auth/admin-request-password-reset`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: String(email || '').trim() }),
-  });
-  if (!response.ok) {
-    let errBody = {};
-    try {
-      errBody = await response.json();
-    } catch {
-      /* ignore */
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: String(email || '').trim() }),
+    });
+    if (!response.ok) {
+      let errBody = {};
+      try {
+        errBody = await response.json();
+      } catch {
+        /* ignore */
+      }
+      const detail = errBody.detail;
+      const msg =
+        typeof detail === 'string'
+          ? detail
+          : errBody.message || `HTTP ${response.status}`;
+      throw new Error(msg);
     }
-    const detail = errBody.detail;
-    const msg =
-      typeof detail === 'string'
-        ? detail
-        : errBody.message || `HTTP ${response.status}`;
-    throw new Error(msg);
+    return response.json();
+  } catch (error) {
+    const msg = String(error?.message || error);
+    if (msg.includes('Failed to fetch') || msg.includes('ERR_NAME_NOT_RESOLVED')) {
+      throw new Error(
+        `Cannot reach the API at ${API_BASE_URL}. Check VITE_API_BASE_URL (build-time), Azure app default domain, and that the app is running. If the host name is wrong, DNS will fail (ERR_NAME_NOT_RESOLVED).`,
+      );
+    }
+    throw error;
   }
-  return response.json();
 };
 
 // Auth API

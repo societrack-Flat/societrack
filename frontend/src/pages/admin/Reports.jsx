@@ -13,6 +13,7 @@ import * as XLSX from 'xlsx';
 import societrackLogo from '../../assets/societrack-logo.png';
 import { drawBrandWordmark } from '../../lib/pdfBrand';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
+import { downloadXlsx, downloadPdf } from '../../lib/downloadFile';
 
 const toDataUrl = async (url) => {
   const res = await fetch(url);
@@ -155,7 +156,7 @@ const Reports = () => {
     }
   };
 
-  const exportIncomeExcel = () => {
+  const exportIncomeExcel = async () => {
     if (incomeData.length === 0) {
       toast.error('No income data to export');
       return;
@@ -184,11 +185,11 @@ const Reports = () => {
     const label = selectedMonth === 'all' || selectedYear === 'all'
       ? `All_${selectedYear === 'all' ? 'Years' : selectedYear}`
       : `${getMonthName(parseInt(selectedMonth))}_${selectedYear}`;
-    XLSX.writeFile(wb, `Income_${label}.xlsx`);
+    await downloadXlsx(wb, `Income_${label}.xlsx`);
     toast.success('Income Excel exported successfully');
   };
 
-  const exportExpenseExcel = () => {
+  const exportExpenseExcel = async () => {
     if (expenseData.length === 0) {
       toast.error('No expense data to export');
       return;
@@ -215,7 +216,7 @@ const Reports = () => {
     const label = selectedMonth === 'all' || selectedYear === 'all'
       ? `All_${selectedYear === 'all' ? 'Years' : selectedYear}`
       : `${getMonthName(parseInt(selectedMonth))}_${selectedYear}`;
-    XLSX.writeFile(wb, `Expenses_${label}.xlsx`);
+    await downloadXlsx(wb, `Expenses_${label}.xlsx`);
     toast.success('Expense Excel exported successfully');
   };
 
@@ -339,7 +340,7 @@ const Reports = () => {
       );
     }
 
-    doc.save(`Financial_Report_${periodLabel.replace(/\s+/g, '_')}.pdf`);
+    await downloadPdf(doc, `Financial_Report_${periodLabel.replace(/\s+/g, '_')}.pdf`);
     toast.success('PDF exported successfully');
   };
 
@@ -574,22 +575,22 @@ const Reports = () => {
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
-                          <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Title</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Date</th>
                           <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Category</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Vendor</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Description</th>
                           <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Amount</th>
-                          <th className="text-left py-3 px-4 text-sm font-medium text-gray-900 whitespace-nowrap">Expense Date</th>
-                          <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Paid To</th>
-                          <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Payment Mode</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Payment</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {filteredExpenses.map((e) => (
                           <tr key={e.id} className="hover:bg-gray-50">
-                            <td className="py-3 px-4 text-sm text-gray-900">{e.description || e.category || '-'}</td>
+                            <td className="py-3 px-4 text-sm text-gray-900">{formatDate(e.date)}</td>
                             <td className="py-3 px-4 text-sm text-gray-600">{e.category}</td>
-                            <td className="py-3 px-4 text-sm font-semibold text-red-600">{formatCurrency(e.amount)}</td>
-                            <td className="py-3 px-4 text-sm text-gray-600">{formatDate(e.date)}</td>
                             <td className="py-3 px-4 text-sm text-gray-600">{e.vendor_name || '-'}</td>
+                            <td className="py-3 px-4 text-sm text-gray-600 max-w-xs truncate">{e.description || '-'}</td>
+                            <td className="py-3 px-4 text-sm font-semibold text-red-600">{formatCurrency(e.amount)}</td>
                             <td className="py-3 px-4 text-sm text-gray-600 capitalize">{String(e.payment_mode || '').replace('_', ' ')}</td>
                           </tr>
                         ))}

@@ -106,7 +106,7 @@ async def admin_request_password_reset(body: AdminForgotPasswordIn) -> dict:
     if parsed.netloc:
         base = f"{parsed.scheme}://{parsed.netloc}"
 
-    redirect_to = f"{base}/reset-password?from=admin"
+    redirect_to = f"{base}/reset-password"
 
     try:
         sb = supabase_rest()

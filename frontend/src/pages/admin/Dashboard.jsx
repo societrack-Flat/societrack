@@ -22,9 +22,12 @@ import Button from '../../components/Button';
 import toast from 'react-hot-toast';
 import DashboardMonthlyBarChart from '../../components/DashboardMonthlyBarChart';
 import SupportChatPanel from '../../components/SupportChatPanel';
+import FloatingSupportChat from '../../components/FloatingSupportChat';
+import { isNativeApp } from '../../lib/nativeApp';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
 import { CALENDAR_MONTH_OPTIONS, getMaintenanceYearOptions } from '../../utils/maintenanceMonthOptions';
 import { dueFromFlat, pendingTotalForDashboardPeriod } from '../../utils/maintenancePending';
+import { autoClosePriorMonths } from '../../lib/maintenanceAutoRollover';
 import { applyMaintenanceIncomeAfterInsert } from '../../lib/applyMaintenanceIncome';
 
 /** Primary green — use consistently on admin dashboard (matches mock “Add Receipt”) */
@@ -229,6 +232,13 @@ const Dashboard = () => {
   const fetchDashboardStats = async () => {
     try {
       setLoading(true);
+
+      const now = new Date();
+      try {
+        await autoClosePriorMonths(activeApartmentId, now.getFullYear(), now.getMonth() + 1);
+      } catch (rolloverErr) {
+        console.warn('Auto month rollover skipped:', rolloverErr);
+      }
 
       const { from, to } = getRangeBounds(timeRange, customFrom, customTo);
 
@@ -898,13 +908,15 @@ const Dashboard = () => {
                 )}
               </div>
 
-              <div className="flex flex-col lg:flex-row gap-4 mb-4 lg:items-stretch">
-                <div className="w-full lg:w-1/2 min-w-0 flex flex-col lg:h-[420px] min-h-[320px] lg:min-h-0">
-                  <DashboardMonthlyBarChart fillHeight items={barChartItems} incomeColor={DASH_GREEN} />
+              <div className={`flex flex-col gap-4 mb-4 ${isNativeApp() ? '' : 'lg:flex-row lg:items-stretch'}`}>
+                <div className={`w-full min-w-0 flex flex-col min-h-[320px] ${isNativeApp() ? '' : 'lg:w-1/2 lg:h-[420px] lg:min-h-0'}`}>
+                  <DashboardMonthlyBarChart fillHeight={!isNativeApp()} items={barChartItems} incomeColor={DASH_GREEN} />
                 </div>
-                <div className="w-full lg:w-1/2 min-w-0 flex flex-col min-h-[360px] lg:h-[420px] lg:min-h-0">
-                  <SupportChatPanel variant="admin" apartmentId={activeApartmentId} dashboardCompact />
-                </div>
+                {!isNativeApp() && (
+                  <div className="w-full lg:w-1/2 min-w-0 flex flex-col min-h-[360px] lg:h-[420px] lg:min-h-0">
+                    <SupportChatPanel variant="admin" apartmentId={activeApartmentId} dashboardCompact />
+                  </div>
+                )}
               </div>
 
               <div className="w-full bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-6">
@@ -1284,6 +1296,10 @@ const Dashboard = () => {
             </>
           )}
         </main>
+
+        {isNativeApp() && !loading && (
+          <FloatingSupportChat apartmentId={activeApartmentId} />
+        )}
       </div>
     </div>
   );

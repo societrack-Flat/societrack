@@ -53,6 +53,9 @@ export const AuthProvider = ({ children }) => {
   userRef.current = user;
   /** Prevents concurrent loadUserProfile(userId) for the same user (initAuth + SIGNED_IN race). */
   const profileLoadLockRef = useRef(null);
+  const profileLoadInflightRef = useRef(new Map());
+  const profileLoadedRef = useRef(false);
+  profileLoadedRef.current = profileLoaded;
 
   const readCachedProfile = (userId) => {
     try {
@@ -233,15 +236,20 @@ export const AuthProvider = ({ children }) => {
       }
 
       if (event === 'SIGNED_IN' && session?.user) {
-        // If this is the same user already loaded (e.g. token refresh, URL hash processing,
-        // or duplicate SIGNED_IN after initAuth), skip the reload to avoid blanking the page.
-        if (loadedUserIdRef.current === session.user.id) {
+        const uid = session.user.id;
+        // Profile bootstrap already running (e.g. signInWithEmail) — don't start a second load.
+        if (profileLoadInflightRef.current.has(uid)) {
+          setLoading(false);
+          return;
+        }
+        // Same user and profile already ready — skip reload (token refresh, duplicate SIGNED_IN).
+        if (loadedUserIdRef.current === uid && profileLoadedRef.current) {
           setLoading(false);
           return;
         }
 
         setUser(session.user);
-        await loadUserProfile(session.user.id);
+        await loadUserProfile(uid);
         setLoading(false);
       } else if (event === 'TOKEN_REFRESHED' && session?.user) {
         // Do NOT setUser() here. The Supabase client already has the new session; getSession() returns
@@ -277,162 +285,110 @@ export const AuthProvider = ({ children }) => {
     if (!Capacitor.isNativePlatform()) return;
 
     return registerNativeOAuthCompleteHandler(async () => {
-      const complete = completeOAuthSignInRef.current;
-      if (!complete) return;
-      const result = await complete();
-      if (!result.success) {
-        toast.error(result.error?.message || 'Sign-in failed');
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.user) {
+        toast.error('Sign-in did not complete. Please try again.');
         return;
       }
-      routeAfterNativeOAuth(result.profile);
+
+      setUser(session.user);
+
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        toast.error(profileError.message || 'Could not load profile');
+        return;
+      }
+
+      if (profile) {
+        setUserProfile(profile);
+        setProfileLoaded(true);
+        loadedUserIdRef.current = session.user.id;
+        writeCachedProfile(profile, readCachedProfile(session.user.id).apartment);
+        loadUserProfile(session.user.id).catch(() => {});
+      } else {
+        setUserProfile(null);
+        setApartment(null);
+        setProfileLoaded(true);
+        loadedUserIdRef.current = session.user.id;
+      }
+
+      setLoading(false);
+      routeAfterNativeOAuth(profile);
     });
   }, []);
 
   const loadUserProfile = async (userId) => {
-    console.log('[loadUserProfile] called with:', userId);
+    if (!userId) return null;
 
-    profileLoadLockRef.current = userId;
+    const inflight = profileLoadInflightRef.current.get(userId);
+    if (inflight) {
+      console.log('[loadUserProfile] reusing in-flight load for:', userId);
+      return inflight;
+    }
 
-    const previousLoadedId = loadedUserIdRef.current;
-    loadedUserIdRef.current = userId;
+    const run = (async () => {
+      console.log('[loadUserProfile] called with:', userId);
 
-    try {
-      setBootstrapError(null);
+      profileLoadLockRef.current = userId;
 
-      if (previousLoadedId !== userId) {
-        const snap = readCachedProfile(userId);
-        if (!snap.profile) {
-          console.log('[loadUserProfile] setting profileLoaded to false (no cache)');
-          setProfileLoaded(false);
-        } else {
-          console.log('[loadUserProfile] using cache first, skipping DB query');
-          setUserProfile(snap.profile);
-          setApartment(snap.apartment);
-          setIsSuperAdmin(snap.profile.role === 'super_admin');
-          setProfileLoaded(true);
-          // Still try to fetch from DB in background but don't wait
-          fetchProfileInBackground(userId);
-          return;
-        }
-      }
+      const previousLoadedId = loadedUserIdRef.current;
 
-      console.log('[loadUserProfile] fetching from database...');
-      
-      // Use only direct Supabase for now
-      const { data: profile, error: profileError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
-
-      console.log('[loadUserProfile] DB result:', { profile, profileError });
-
-      if (profileError) {
-        console.error('[loadUserProfile] profileError:', profileError);
-        throw profileError;
-      }
-
-      if (!profile) {
-        // Auth user exists but no app row yet (new signup / OAuth before completeSetup). Not a fatal error.
-        console.warn('[loadUserProfile] No public.users row yet for:', userId);
-        setUserProfile(null);
-        setApartment(null);
-        setAdminApartments([]);
-        setIsSuperAdmin(false);
+      try {
         setBootstrapError(null);
-        setProfileLoaded(true);
-        loadedUserIdRef.current = userId;
-        return;
-      }
 
-      console.log('[loadUserProfile] profile found, setting state:', profile);
-      setUserProfile(profile);
-
-      if (profile.role === 'super_admin') {
-        setAdminApartments([]);
-        let saId = null;
-        try {
-          saId = sessionStorage.getItem(SA_MANAGE_APARTMENT_KEY);
-        } catch {
-          /* ignore */
-        }
-        setSaManagedApartmentIdState(saId || null);
-        let activeApartment = null;
-        if (saId) {
-          try {
-            const { data: aptRow, error: aptErr } = await supabase
-              .from('apartments')
-              .select('*')
-              .eq('id', saId)
-              .maybeSingle();
-            if (!aptErr) activeApartment = aptRow || null;
-          } catch (aptFetchErr) {
-            console.warn('[loadUserProfile] SA managed apartment fetch failed:', aptFetchErr);
+        if (previousLoadedId !== userId) {
+          const snap = readCachedProfile(userId);
+          if (!snap.profile) {
+            console.log('[loadUserProfile] setting profileLoaded to false (no cache)');
+            setProfileLoaded(false);
+          } else {
+            console.log('[loadUserProfile] using cache first, skipping DB query');
+            setUserProfile(snap.profile);
+            setApartment(snap.apartment);
+            setIsSuperAdmin(snap.profile.role === 'super_admin');
+            setProfileLoaded(true);
+            loadedUserIdRef.current = userId;
+            fetchProfileInBackground(userId);
+            return snap.profile;
           }
         }
-        setApartment(activeApartment);
-        writeCachedProfile(profile, activeApartment);
-        setIsSuperAdmin(true);
-        setProfileLoaded(true);
-        return;
-      }
 
-      try {
-        sessionStorage.removeItem(SA_MANAGE_APARTMENT_KEY);
-      } catch {
-        /* ignore */
-      }
-      setSaManagedApartmentIdState(null);
+        console.log('[loadUserProfile] fetching from database...');
 
-      // Load admin apartments
-      try {
-        const { data: apartments, error } = await supabase
-          .from('apartments')
+        const { data: profile, error: profileError } = await supabase
+          .from('users')
           .select('*')
-          .eq('created_by', userId)
-          .order('created_at', { ascending: false });
+          .eq('id', userId)
+          .maybeSingle();
 
-        if (error) {
-          console.log('[loadUserProfile] Error loading apartments:', error);
+        console.log('[loadUserProfile] DB result:', { profile, profileError });
+
+        if (profileError) {
+          console.error('[loadUserProfile] profileError:', profileError);
+          throw profileError;
+        }
+
+        if (!profile) {
+          console.warn('[loadUserProfile] No public.users row yet for:', userId);
+          setUserProfile(null);
+          setApartment(null);
           setAdminApartments([]);
-        } else {
-          console.log('[loadUserProfile] Loaded apartments:', apartments);
-          setAdminApartments(apartments || []);
+          setIsSuperAdmin(false);
+          setBootstrapError(null);
+          setProfileLoaded(true);
+          loadedUserIdRef.current = userId;
+          return null;
         }
-      } catch (err) {
-        console.log('[loadUserProfile] Apartment loading failed:', err);
-        setAdminApartments([]);
-      }
 
-      // Resolve active society for admin UIs (TopBar, dashboard queries). Must match users.apartment_id.
-      let activeApartment = null;
-      if (profile.apartment_id) {
-        try {
-          const { data: aptRow, error: aptErr } = await supabase
-            .from('apartments')
-            .select('*')
-            .eq('id', profile.apartment_id)
-            .maybeSingle();
-          if (!aptErr) activeApartment = aptRow || null;
-        } catch (aptFetchErr) {
-          console.warn('[loadUserProfile] active apartment row failed:', aptFetchErr);
-        }
-      }
-      setApartment(activeApartment);
-      writeCachedProfile(profile, activeApartment);
+        console.log('[loadUserProfile] profile found, setting state:', profile);
+        setUserProfile(profile);
 
-      setIsSuperAdmin(false);
-      setProfileLoaded(true);
-
-    } catch (error) {
-      console.error('[loadUserProfile] error:', error);
-      
-      // Try to use cache on error
-      const cached = readCachedProfile(userId);
-      if (cached.profile) {
-        console.log('[loadUserProfile] using cache as fallback');
-        setUserProfile(cached.profile);
-        if (cached.profile.role === 'super_admin') {
+        if (profile.role === 'super_admin') {
           setAdminApartments([]);
           let saId = null;
           try {
@@ -450,55 +406,147 @@ export const AuthProvider = ({ children }) => {
                 .eq('id', saId)
                 .maybeSingle();
               if (!aptErr) activeApartment = aptRow || null;
-            } catch (e) {
-              console.warn('[loadUserProfile] cache SA apartment:', e);
+            } catch (aptFetchErr) {
+              console.warn('[loadUserProfile] SA managed apartment fetch failed:', aptFetchErr);
             }
           }
           setApartment(activeApartment);
+          writeCachedProfile(profile, activeApartment);
           setIsSuperAdmin(true);
-        } else {
-          try {
-            sessionStorage.removeItem(SA_MANAGE_APARTMENT_KEY);
-          } catch {
-            /* ignore */
-          }
-          setSaManagedApartmentIdState(null);
-          setApartment(cached.apartment);
-          setIsSuperAdmin(false);
-          try {
-            const { data: apartments, error } = await supabase
-              .from('apartments')
-              .select('*')
-              .eq('created_by', userId)
-              .order('created_at', { ascending: false });
-
-            if (error) {
-              setAdminApartments([]);
-            } else {
-              setAdminApartments(apartments || []);
-            }
-          } catch (err) {
-            setAdminApartments([]);
-          }
+          setProfileLoaded(true);
+          loadedUserIdRef.current = userId;
+          return profile;
         }
 
+        try {
+          sessionStorage.removeItem(SA_MANAGE_APARTMENT_KEY);
+        } catch {
+          /* ignore */
+        }
+        setSaManagedApartmentIdState(null);
+
+        try {
+          const { data: apartments, error } = await supabase
+            .from('apartments')
+            .select('*')
+            .eq('created_by', userId)
+            .order('created_at', { ascending: false });
+
+          if (error) {
+            console.log('[loadUserProfile] Error loading apartments:', error);
+            setAdminApartments([]);
+          } else {
+            console.log('[loadUserProfile] Loaded apartments:', apartments);
+            setAdminApartments(apartments || []);
+          }
+        } catch (err) {
+          console.log('[loadUserProfile] Apartment loading failed:', err);
+          setAdminApartments([]);
+        }
+
+        let activeApartment = null;
+        if (profile.apartment_id) {
+          try {
+            const { data: aptRow, error: aptErr } = await supabase
+              .from('apartments')
+              .select('*')
+              .eq('id', profile.apartment_id)
+              .maybeSingle();
+            if (!aptErr) activeApartment = aptRow || null;
+          } catch (aptFetchErr) {
+            console.warn('[loadUserProfile] active apartment row failed:', aptFetchErr);
+          }
+        }
+        setApartment(activeApartment);
+        writeCachedProfile(profile, activeApartment);
+
+        setIsSuperAdmin(false);
         setProfileLoaded(true);
         loadedUserIdRef.current = userId;
-        return;
+        return profile;
+      } catch (error) {
+        console.error('[loadUserProfile] error:', error);
+
+        const cached = readCachedProfile(userId);
+        if (cached.profile) {
+          console.log('[loadUserProfile] using cache as fallback');
+          setUserProfile(cached.profile);
+          if (cached.profile.role === 'super_admin') {
+            setAdminApartments([]);
+            let saId = null;
+            try {
+              saId = sessionStorage.getItem(SA_MANAGE_APARTMENT_KEY);
+            } catch {
+              /* ignore */
+            }
+            setSaManagedApartmentIdState(saId || null);
+            let activeApartment = null;
+            if (saId) {
+              try {
+                const { data: aptRow, error: aptErr } = await supabase
+                  .from('apartments')
+                  .select('*')
+                  .eq('id', saId)
+                  .maybeSingle();
+                if (!aptErr) activeApartment = aptRow || null;
+              } catch (e) {
+                console.warn('[loadUserProfile] cache SA apartment:', e);
+              }
+            }
+            setApartment(activeApartment);
+            setIsSuperAdmin(true);
+          } else {
+            try {
+              sessionStorage.removeItem(SA_MANAGE_APARTMENT_KEY);
+            } catch {
+              /* ignore */
+            }
+            setSaManagedApartmentIdState(null);
+            setApartment(cached.apartment);
+            setIsSuperAdmin(false);
+            try {
+              const { data: apartments, error: aptListErr } = await supabase
+                .from('apartments')
+                .select('*')
+                .eq('created_by', userId)
+                .order('created_at', { ascending: false });
+
+              if (aptListErr) {
+                setAdminApartments([]);
+              } else {
+                setAdminApartments(apartments || []);
+              }
+            } catch (err) {
+              setAdminApartments([]);
+            }
+          }
+
+          setProfileLoaded(true);
+          loadedUserIdRef.current = userId;
+          return cached.profile;
+        }
+
+        console.error('[loadUserProfile] no cache available, setting bootstrap error');
+        setBootstrapError({
+          kind: 'fetch',
+          message: error.message || 'Could not load your profile',
+        });
+        setUserProfile(null);
+        setApartment(null);
+        setAdminApartments([]);
+        setProfileLoaded(true);
+        loadedUserIdRef.current = null;
+        return null;
+      } finally {
+        profileLoadLockRef.current = null;
       }
-      
-      console.error('[loadUserProfile] no cache available, setting bootstrap error');
-      setBootstrapError({
-        kind: 'fetch',
-        message: error.message || 'Could not load your profile',
-      });
-      setUserProfile(null);
-      setApartment(null);
-      setAdminApartments([]);
-      setProfileLoaded(true);
-      loadedUserIdRef.current = null;
+    })();
+
+    profileLoadInflightRef.current.set(userId, run);
+    try {
+      return await run;
     } finally {
-      profileLoadLockRef.current = null;
+      profileLoadInflightRef.current.delete(userId);
     }
   };
 
@@ -638,22 +686,50 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signInWithEmail = async (email, password) => {
+    const LOGIN_PROFILE_MS = 15000;
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       const userId = data.user.id;
-      // Single source of truth: wait for profile bootstrap before Login navigates (avoids ProtectedRoute stuck on loading).
-      await loadUserProfile(userId);
-      const { data: profile, error: profileError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
-      if (profileError) {
-        console.warn('[signInWithEmail] users row fetch:', profileError);
+      setUser(data.user);
+
+      let profile = null;
+      try {
+        profile = await Promise.race([
+          loadUserProfile(userId),
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('PROFILE_LOAD_TIMEOUT')), LOGIN_PROFILE_MS);
+          }),
+        ]);
+      } catch (loadErr) {
+        if (loadErr?.message !== 'PROFILE_LOAD_TIMEOUT') throw loadErr;
+
+        const { data: quickProfile, error: quickErr } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle();
+        if (quickErr) throw quickErr;
+
+        profile = quickProfile || null;
+        if (profile) {
+          setUserProfile(profile);
+          setProfileLoaded(true);
+          loadedUserIdRef.current = userId;
+          writeCachedProfile(profile, readCachedProfile(userId).apartment);
+        } else {
+          setUserProfile(null);
+          setProfileLoaded(true);
+          loadedUserIdRef.current = userId;
+        }
+        loadUserProfile(userId).catch(() => {});
       }
-      return { success: true, user: data.user, profile: profile || null };
+
+      setLoading(false);
+      return { success: true, user: data.user, profile };
     } catch (error) {
+      setLoading(false);
       toast.error(error.message);
       return { success: false, error };
     }
@@ -684,6 +760,8 @@ export const AuthProvider = ({ children }) => {
 
   /** After native Google/Apple OAuth — load session + profile and return role for routing. */
   const completeOAuthSignIn = async () => {
+    const OAUTH_PROFILE_MS = 15000;
+
     try {
       const { data: { session }, error } = await supabase.auth.getSession();
       if (error) throw error;
@@ -693,25 +771,43 @@ export const AuthProvider = ({ children }) => {
 
       setUser(session.user);
 
-      const { data: profile, error: profileError } = await supabase
+      let profile = null;
+      const { data: quickProfile, error: profileError } = await supabase
         .from('users')
         .select('*')
         .eq('id', session.user.id)
         .maybeSingle();
 
       if (profileError) throw profileError;
+      profile = quickProfile || null;
 
       if (profile) {
-        await loadUserProfile(session.user.id);
+        try {
+          await Promise.race([
+            loadUserProfile(session.user.id),
+            new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('PROFILE_LOAD_TIMEOUT')), OAUTH_PROFILE_MS);
+            }),
+          ]);
+        } catch (loadErr) {
+          if (loadErr?.message !== 'PROFILE_LOAD_TIMEOUT') throw loadErr;
+          setUserProfile(profile);
+          setProfileLoaded(true);
+          loadedUserIdRef.current = session.user.id;
+          writeCachedProfile(profile, readCachedProfile(session.user.id).apartment);
+          loadUserProfile(session.user.id).catch(() => {});
+        }
       } else {
         setUserProfile(null);
         setApartment(null);
         setProfileLoaded(true);
-        setLoading(false);
+        loadedUserIdRef.current = session.user.id;
       }
 
-      return { success: true, profile: profile || null };
+      setLoading(false);
+      return { success: true, profile };
     } catch (error) {
+      setLoading(false);
       toast.error(error.message || 'Sign-in failed');
       return { success: false, error };
     }
@@ -917,20 +1013,37 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signInAsResident = async (username, password) => {
+    const RESIDENT_LOGIN_MS = 15000;
+
     try {
-      // Find viewer settings with matching credentials
-      const { data: settings, error } = await supabase
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        /* ignore */
+      }
+      setUser(null);
+      setUserProfile(null);
+      loadedUserIdRef.current = null;
+
+      const queryPromise = supabase
         .from('viewer_settings')
         .select('*, apartments!inner(*)')
         .eq('viewer_username', username)
         .eq('viewer_password', password)
         .single();
 
+      const { data: settings, error } = await Promise.race([
+        queryPromise,
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Login timed out. Check your connection.')), RESIDENT_LOGIN_MS);
+        }),
+      ]);
+
       if (error || !settings) {
+        toast.error('Invalid resident credentials');
         return { success: false, error: 'Invalid resident credentials' };
       }
 
-      // Create resident session
       const residentSession = {
         apartment_id: settings.apartment_id,
         apartment_name: settings.apartments?.name || 'Apartment',
@@ -944,11 +1057,10 @@ export const AuthProvider = ({ children }) => {
       };
 
       localStorage.setItem('resident_session', JSON.stringify(residentSession));
-      
-      // Set resident state
+
       setIsResident(true);
       setResidentApartmentId(settings.apartment_id);
-      setResidentFlatId(null); // Common login, no specific flat
+      setResidentFlatId(null);
       setResidentFlatNumber(null);
       setApartment({ id: settings.apartment_id, name: settings.apartments?.name });
       setProfileLoaded(true);
@@ -956,7 +1068,7 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true, settings };
     } catch (error) {
-      toast.error('Resident login failed');
+      toast.error(error?.message || 'Resident login failed');
       return { success: false, error };
     }
   };

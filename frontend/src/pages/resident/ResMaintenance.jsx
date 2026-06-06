@@ -7,6 +7,7 @@ import TopBar from '../../components/TopBar';
 import Card from '../../components/Card';
 import EmptyState from '../../components/EmptyState';
 import toast from 'react-hot-toast';
+import { dueFromFlat } from '../../utils/maintenancePending';
 
 const ResMaintenance = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -55,16 +56,25 @@ const ResMaintenance = () => {
           .eq('year', selectedYear)
           .maybeSingle();
 
-        const record = maintenanceData || {
-          id: null,
-          flat_id: residentFlatId,
-          month: selectedMonth,
-          year: selectedYear,
-          amount: 0,
-          status: 'pending',
-          paid_date: null,
-          flats: flatData,
-        };
+        const baseDue = dueFromFlat(flatData);
+        let record;
+        if (maintenanceData) {
+          const raw = Number(maintenanceData.amount ?? 0);
+          const amount =
+            maintenanceData.status === 'pending' && (raw === 0 || Number.isNaN(raw)) ? baseDue : raw;
+          record = { ...maintenanceData, amount, flats: flatData };
+        } else {
+          record = {
+            id: null,
+            flat_id: residentFlatId,
+            month: selectedMonth,
+            year: selectedYear,
+            amount: baseDue,
+            status: baseDue > 0 ? 'pending' : 'paid',
+            paid_date: null,
+            flats: flatData,
+          };
+        }
 
         setMaintenance([record]);
         setStats({
@@ -99,16 +109,25 @@ const ResMaintenance = () => {
         maintenanceData?.map(m => [m.flat_id, m]) || []
       );
 
-      // Combine with all flats
-      const combinedData = (flats || []).map(flat => {
+      // Combine with all flats (same due logic as admin Maintenance tab)
+      const combinedData = (flats || []).map((flat) => {
         const existing = existingMap.get(flat.id);
-        return existing || {
+        const baseDue = dueFromFlat(flat);
+
+        if (existing) {
+          const raw = Number(existing.amount ?? 0);
+          const amount =
+            existing.status === 'pending' && (raw === 0 || Number.isNaN(raw)) ? baseDue : raw;
+          return { ...existing, amount, flats: flat };
+        }
+
+        return {
           id: null,
           flat_id: flat.id,
           month: selectedMonth,
           year: selectedYear,
-          amount: 0,
-          status: 'pending',
+          amount: baseDue,
+          status: baseDue > 0 ? 'pending' : 'paid',
           paid_date: null,
           flats: flat,
         };

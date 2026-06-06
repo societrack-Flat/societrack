@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { formatCurrency } from '../lib/supabaseClient';
+import { isNativeApp } from '../lib/nativeApp';
 
 const W = 560;
 const H = 220;
@@ -49,6 +50,8 @@ export default function DashboardMonthlyBarChart({
   /** Match dashboard chat column height (flex parent should set lg:h-[420px]) */
   fillHeight = false,
 }) {
+  const useStaticBars = isNativeApp();
+
   const { maxValue, bars, yBase } = useMemo(() => {
     const rawMax = items.reduce((m, it) => Math.max(m, Number(it.income || 0), Number(it.expense || 0)), 0) || 0;
     const max = niceCeilMax(rawMax);
@@ -123,11 +126,11 @@ export default function DashboardMonthlyBarChart({
           fillHeight ? 'flex-1 min-h-0 w-full relative flex flex-col' : 'flex flex-col'
         }
       >
-        <div className={fillHeight ? 'flex-1 min-h-0 w-full relative' : ''}>
+        <div className={fillHeight && !useStaticBars ? 'flex-1 min-h-0 w-full relative' : 'w-full'}>
           <svg
             viewBox={`0 0 ${W} ${H}`}
-            className={`w-full block ${fillHeight ? 'absolute inset-0 h-full max-h-none' : 'h-auto'}`}
-            preserveAspectRatio={fillHeight ? 'xMidYMid meet' : undefined}
+            className={`w-full block ${fillHeight && !useStaticBars ? 'absolute inset-0 h-full max-h-none' : 'h-auto min-h-[200px]'}`}
+            preserveAspectRatio="xMidYMid meet"
             role="img"
             aria-label="Monthly income and expenses bar chart"
           >
@@ -171,31 +174,58 @@ export default function DashboardMonthlyBarChart({
           />
         ))}
 
-        {/* Bars — animated grow from baseline */}
+        {/* Bars — static on Android WebView (framer-motion SVG rects often fail to render) */}
         {bars.map((b, i) => (
           <g key={`bars-${b.ym}-${i}`}>
-            <motion.rect
-              x={b.xInc}
-              width={b.w}
-              rx={2}
-              fill={incomeColor}
-              initial={{ height: 0, y: yBase }}
-              animate={{ height: b.hInc, y: yBase - b.hInc }}
-              transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: i * 0.03 }}
-            >
-              <title>{`Income ${monthLabel(b.ym)}: ${formatCurrency(b.inc)}`}</title>
-            </motion.rect>
-            <motion.rect
-              x={b.xExp}
-              width={b.w}
-              rx={2}
-              fill={expenseColor}
-              initial={{ height: 0, y: yBase }}
-              animate={{ height: b.hExp, y: yBase - b.hExp }}
-              transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: i * 0.03 + 0.05 }}
-            >
-              <title>{`Expenses ${monthLabel(b.ym)}: ${formatCurrency(b.exp)}`}</title>
-            </motion.rect>
+            {useStaticBars ? (
+              <>
+                <rect
+                  x={b.xInc}
+                  y={yBase - b.hInc}
+                  width={b.w}
+                  height={b.hInc}
+                  rx={2}
+                  fill={incomeColor}
+                >
+                  <title>{`Income ${monthLabel(b.ym)}: ${formatCurrency(b.inc)}`}</title>
+                </rect>
+                <rect
+                  x={b.xExp}
+                  y={yBase - b.hExp}
+                  width={b.w}
+                  height={b.hExp}
+                  rx={2}
+                  fill={expenseColor}
+                >
+                  <title>{`Expenses ${monthLabel(b.ym)}: ${formatCurrency(b.exp)}`}</title>
+                </rect>
+              </>
+            ) : (
+              <>
+                <motion.rect
+                  x={b.xInc}
+                  width={b.w}
+                  rx={2}
+                  fill={incomeColor}
+                  initial={{ height: 0, y: yBase }}
+                  animate={{ height: b.hInc, y: yBase - b.hInc }}
+                  transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: i * 0.03 }}
+                >
+                  <title>{`Income ${monthLabel(b.ym)}: ${formatCurrency(b.inc)}`}</title>
+                </motion.rect>
+                <motion.rect
+                  x={b.xExp}
+                  width={b.w}
+                  rx={2}
+                  fill={expenseColor}
+                  initial={{ height: 0, y: yBase }}
+                  animate={{ height: b.hExp, y: yBase - b.hExp }}
+                  transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: i * 0.03 + 0.05 }}
+                >
+                  <title>{`Expenses ${monthLabel(b.ym)}: ${formatCurrency(b.exp)}`}</title>
+                </motion.rect>
+              </>
+            )}
           </g>
         ))}
 
