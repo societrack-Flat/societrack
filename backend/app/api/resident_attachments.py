@@ -69,6 +69,10 @@ async def _create_signed_attachment_url(attachment_path: str, expires_in: int = 
     if signed.startswith("http"):
         return signed
     base = settings.supabase_url.rstrip("/")
+    if signed.startswith("/object/"):
+        return f"{base}/storage/v1{signed}"
+    if signed.startswith("/storage/v1/"):
+        return f"{base}{signed}"
     if signed.startswith("/"):
         return f"{base}/storage/v1{signed}"
     return f"{base}/storage/v1/object/sign/attachments/{encoded}?{signed}"

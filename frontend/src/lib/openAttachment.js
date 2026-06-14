@@ -1,9 +1,7 @@
-import { Browser } from '@capacitor/browser';
 import { getSignedUrl } from './supabaseClient';
 import { getApiBaseUrl } from './apiBaseUrl';
 import { isNativeApp } from './nativeApp';
-
-const API_BASE_URL = getApiBaseUrl();
+import { openRemoteFile } from './nativeFile';
 
 function readResidentSession() {
   try {
@@ -14,18 +12,21 @@ function readResidentSession() {
   }
 }
 
-/** Open a URL in a way that works on phone browsers and the Android app. */
-export async function openUrlInBrowser(url) {
+function filenameFromPath(attachmentPath) {
+  if (!attachmentPath) return 'attachment';
+  const parts = String(attachmentPath).split('/');
+  return parts[parts.length - 1] || 'attachment';
+}
+
+/** Open a URL in a way that works on laptop browsers, mobile web, and the Android app. */
+export async function openUrlInBrowser(url, filename = 'attachment') {
   if (!url) return;
+
   if (isNativeApp()) {
-    await Browser.open({ url });
+    await openRemoteFile(url, filename);
     return;
   }
-  const isMobileDevice = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
-  if (isMobileDevice) {
-    window.location.assign(url);
-    return;
-  }
+
   const popup = window.open(url, '_blank', 'noopener,noreferrer');
   if (!popup) window.location.assign(url);
 }
@@ -36,7 +37,7 @@ async function getResidentAttachmentUrl(attachmentPath) {
     throw new Error('Resident session expired. Please sign in again.');
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/resident/attachment-url`, {
+  const response = await fetch(`${getApiBaseUrl()}/api/resident/attachment-url`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -79,5 +80,5 @@ export async function resolveAttachmentUrl(attachmentPath) {
 export async function openAttachment(attachmentPath) {
   const url = await resolveAttachmentUrl(attachmentPath);
   if (!url) throw new Error('Could not get attachment link');
-  await openUrlInBrowser(url);
+  await openUrlInBrowser(url, filenameFromPath(attachmentPath));
 }

@@ -1185,22 +1185,34 @@ const Dashboard = () => {
                 </form>
               </Modal>
 
-              {/* Add Expense modal */}
+              {/* Add Expense modal — same layout as Expenses page */}
               <Modal
                 isOpen={showExpenseModal}
                 onClose={closeExpenseModal}
-                title="Add Expense"
-                subtitle="Record a society expense"
-                size="lg"
+                title="Add New Expense"
+                subtitle="Record a new expense entry"
               >
                 <form onSubmit={submitExpenseQuick} className="space-y-5">
+                  <InputField
+                    label="Category"
+                    name="category"
+                    type="select"
+                    value={expenseForm.category}
+                    onChange={handleExpenseChange}
+                    options={[
+                      { value: '', label: 'Select Category' },
+                      ...expenseCategories.map((c) => ({ value: c.name, label: c.name })),
+                    ]}
+                    required
+                  />
                   <div className="grid grid-cols-2 gap-4">
                     <InputField
-                      label="Amount (₹)"
+                      label="Amount"
                       name="amount"
                       type="number"
                       min="0"
                       step="0.01"
+                      placeholder="0.00"
                       value={expenseForm.amount}
                       onChange={handleExpenseChange}
                       icon={IndianRupee}
@@ -1217,18 +1229,6 @@ const Dashboard = () => {
                     />
                   </div>
                   <InputField
-                    label="Category"
-                    name="category"
-                    type="select"
-                    value={expenseForm.category}
-                    onChange={handleExpenseChange}
-                    options={[
-                      { value: '', label: 'Select Category' },
-                      ...expenseCategories.map((c) => ({ value: c.name, label: c.name })),
-                    ]}
-                    required
-                  />
-                  <InputField
                     label="Vendor Name"
                     name="vendor_name"
                     type="text"
@@ -1237,7 +1237,7 @@ const Dashboard = () => {
                     onChange={handleExpenseChange}
                   />
                   <InputField
-                    label="Payment mode"
+                    label="Payment Mode"
                     name="payment_mode"
                     type="select"
                     value={expenseForm.payment_mode}
@@ -1278,7 +1278,7 @@ const Dashboard = () => {
                     />
                     <p className="text-xs text-gray-500 mt-1">PDF, JPG, PNG (Max 5MB)</p>
                   </div>
-                  <div className="flex gap-3 pt-2">
+                  <div className="flex gap-3 pt-4">
                     <Button type="button" variant="outline" fullWidth onClick={closeExpenseModal}>
                       Cancel
                     </Button>
@@ -1288,7 +1288,7 @@ const Dashboard = () => {
                       fullWidth
                       loading={expenseSaving || expenseUploading}
                     >
-                      {expenseUploading ? 'Uploading...' : 'Save expense'}
+                      {expenseUploading ? 'Uploading...' : 'Add Expense'}
                     </Button>
                   </div>
                 </form>
