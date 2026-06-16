@@ -33,7 +33,7 @@ const SuperAdminLogin = () => {
 
       if (result.success) {
         toast.success('Super Admin login successful!');
-        navigate('/superadmin/dashboard');
+        window.location.href = '/superadmin/dashboard';
       } else {
         toast.error(result.error || 'Login failed');
       }

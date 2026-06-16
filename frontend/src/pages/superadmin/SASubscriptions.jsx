@@ -23,6 +23,7 @@ const SASubscriptions = () => {
     subscription_status: '',
     flat_limit: '',
     monthly_price: '',
+    subscription_end_date: '',
   });
 
   const { userProfile } = useAuth();
@@ -89,6 +90,7 @@ const SASubscriptions = () => {
       subscription_status: apt.subscription_status || 'trial',
       flat_limit: apt.flat_limit?.toString() || '50',
       monthly_price: apt.monthly_price?.toString() || '0',
+      subscription_end_date: apt.subscription_end_date || '',
     });
     setShowEditModal(true);
   };
@@ -97,14 +99,19 @@ const SASubscriptions = () => {
     e.preventDefault();
 
     try {
+      const payload = {
+        plan_name: editData.plan_name,
+        subscription_status: editData.subscription_status,
+        flat_limit: parseInt(editData.flat_limit, 10),
+        monthly_price: parseFloat(editData.monthly_price),
+      };
+      if (editData.subscription_end_date) {
+        payload.subscription_end_date = editData.subscription_end_date;
+      }
+
       const { error } = await supabase
         .from('apartments')
-        .update({
-          plan_name: editData.plan_name,
-          subscription_status: editData.subscription_status,
-          flat_limit: parseInt(editData.flat_limit, 10),
-          monthly_price: parseFloat(editData.monthly_price),
-        })
+        .update(payload)
         .eq('id', editingApartment.id);
 
       if (error) throw error;
@@ -147,6 +154,7 @@ const SASubscriptions = () => {
   };
 
   const expiryDate = (apt) => {
+    if (apt.subscription_end_date) return formatDate(apt.subscription_end_date);
     if (apt.trial_end_date) return formatDate(apt.trial_end_date);
     if (apt.next_billing_date) return formatDate(apt.next_billing_date);
     return '—';
@@ -276,8 +284,17 @@ const SASubscriptions = () => {
             onChange={(e) => setEditData({ ...editData, plan_name: e.target.value })}
             options={[
               { value: 'free_trial', label: 'Free' },
-              { value: 'basic', label: '₹499 Plan' },
+              { value: 'basic', label: '₹499 Plan (basic)' },
+              { value: 'premium', label: '₹499 Plan (premium)' },
             ]}
+          />
+
+          <InputField
+            label="Expiry Date"
+            type="date"
+            name="subscription_end_date"
+            value={editData.subscription_end_date}
+            onChange={(e) => setEditData({ ...editData, subscription_end_date: e.target.value })}
           />
 
           <InputField

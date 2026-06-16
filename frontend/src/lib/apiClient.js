@@ -214,4 +214,12 @@ export const maintenanceApi = {
     }),
 };
 
-export default { authApi, apartmentApi, storageApi, paymentsApi, maintenanceApi };
+/** Super admin: delete society admin accounts (server uses service role). */
+export const superAdminApi = {
+  deleteAdminUser: (userId) =>
+    apiCall(`/api/super-admin/admin-users/${userId}`, {
+      method: 'DELETE',
+    }),
+};
+
+export default { authApi, apartmentApi, storageApi, paymentsApi, maintenanceApi, superAdminApi };

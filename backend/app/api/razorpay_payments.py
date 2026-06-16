@@ -188,7 +188,8 @@ async def _apply_pro_subscription(
             "razorpay_payment_id": payment_id,
         }
 
-    period_end: date = date.today() + timedelta(days=30)
+    period_start = date.today()
+    period_end: date = period_start + timedelta(days=30)
     try:
         updated = await sb.patch(
             "apartments",
@@ -227,6 +228,22 @@ async def _apply_pro_subscription(
 
     if not updated:
         raise HTTPException(status_code=404, detail="Apartment not found")
+
+    try:
+        await sb.post(
+            "payment_history",
+            json={
+                "apartment_id": apartment_id,
+                "razorpay_payment_id": str(payment_id),
+                "amount": plan["monthly_rupees"],
+                "status": "success",
+                "plan_name": APARTMENT_PLAN_NAME_DB,
+                "billing_period_start": period_start.isoformat(),
+                "billing_period_end": period_end.isoformat(),
+            },
+        )
+    except Exception as e:
+        log.warning("payment_history insert failed (subscription still active): %s", e)
 
     row = updated[0] if isinstance(updated, list) else updated
     return {

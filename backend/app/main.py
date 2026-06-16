@@ -8,6 +8,7 @@ from app.api.auth import router as auth_router
 from app.api.razorpay_payments import router as razorpay_router
 from app.api.maintenance_rollover import router as maintenance_rollover_router
 from app.api.resident_attachments import router as resident_attachments_router
+from app.api.super_admin import router as super_admin_router
 
 
 # redirect_slashes=True can issue redirects that confuse some clients; POST+payment must stay on one path.
@@ -33,4 +34,5 @@ app.include_router(auth_router)
 app.include_router(razorpay_router)
 app.include_router(maintenance_rollover_router)
 app.include_router(resident_attachments_router)
+app.include_router(super_admin_router)
 

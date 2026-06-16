@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Users, Search, RefreshCw, ExternalLink, KeyRound, EyeOff } from 'lucide-react';
+import { Users, Search, RefreshCw, ExternalLink, KeyRound, Trash2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, formatDate } from '../../lib/supabaseClient';
+import { superAdminApi } from '../../lib/apiClient';
 import { planDisplayName } from '../../lib/superadminMetrics';
 import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
@@ -25,6 +26,22 @@ const SAUsers = () => {
     }
   };
 
+  const handleDeleteAdmin = async (user) => {
+    if (!user?.id || !user?.email) return;
+    const ok = window.confirm(
+      `Delete admin account ${user.email}?\n\nThis removes their login. Apartment data stays in the system.`,
+    );
+    if (!ok) return;
+    try {
+      await superAdminApi.deleteAdminUser(user.id);
+      toast.success('Admin account deleted');
+      fetchUsers();
+    } catch (e) {
+      console.error(e);
+      toast.error(e?.message || 'Could not delete admin account');
+    }
+  };
+
   const fetchUsers = async () => {
     try {
       setLoading(true);
@@ -41,7 +58,7 @@ const SAUsers = () => {
       if (ids.length > 0) {
         const { data: apts, error: aErr } = await supabase
           .from('apartments')
-          .select('id, name, plan_name, monthly_price, subscription_status')
+          .select('id, name, plan_name, monthly_price, subscription_status, subscription_end_date')
           .in('id', ids);
         if (!aErr && apts) {
           aptMap = Object.fromEntries(apts.map((a) => [a.id, a]));
@@ -194,10 +211,10 @@ const SAUsers = () => {
                               </button>
                               <button
                                 type="button"
-                                className="px-2 py-1.5 text-xs font-medium border border-red-100 text-red-700 rounded-lg hover:bg-red-50 inline-flex items-center gap-1"
-                                onClick={() => toast('Suspend: update subscription in Subscriptions tab')}
+                                className="px-2 py-1.5 text-xs font-medium border border-red-200 text-red-700 rounded-lg hover:bg-red-50 inline-flex items-center gap-1"
+                                onClick={() => handleDeleteAdmin(u)}
                               >
-                                <EyeOff size={14} /> Suspend
+                                <Trash2 size={14} /> Delete
                               </button>
                             </div>
                           </td>
