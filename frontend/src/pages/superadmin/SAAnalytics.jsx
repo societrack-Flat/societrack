@@ -5,7 +5,9 @@ import { supabase, formatCurrency } from '../../lib/supabaseClient';
 import {
   isPaidPlan,
   isFreeClient,
-  monthlyRevenueChartData,
+  monthlyRevenueLast12Months,
+  clientGrowthChartData,
+  totalPlatformRevenue,
 } from '../../lib/superadminMetrics';
 import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
@@ -54,7 +56,6 @@ const SAAnalytics = () => {
   const [payments, setPayments] = useState([]);
 
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
 
   useEffect(() => {
     const load = async () => {
@@ -62,7 +63,7 @@ const SAAnalytics = () => {
         setLoading(true);
         const [aptRes, payRes] = await Promise.all([
           supabase.from('apartments').select('*'),
-          supabase.from('payment_history').select('amount, status, created_at').eq('status', 'success'),
+          supabase.from('payment_history').select('amount, status, created_at'),
         ]);
         if (aptRes.error) throw aptRes.error;
         if (payRes.error) throw payRes.error;
@@ -82,13 +83,7 @@ const SAAnalytics = () => {
     const total = apartments.length;
     const paid = apartments.filter(isPaidPlan).length;
     const free = apartments.filter(isFreeClient).length;
-    const monthlyRevenue = (payments || []).reduce((s, p) => {
-      const d = new Date(p.created_at);
-      const now = new Date();
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-        ? s + Number(p.amount || 0)
-        : s;
-    }, 0);
+    const totalRevenue = totalPlatformRevenue(payments, apartments);
 
     const now = Date.now();
     const sevenDays = 7 * 24 * 60 * 60 * 1000;
@@ -102,26 +97,19 @@ const SAAnalytics = () => {
       total,
       paid,
       free,
-      monthlyRevenue,
+      totalRevenue,
       expiringSoon,
       gracePeriod: 0,
       autoSuspended: 0,
     };
   }, [apartments, payments]);
 
-  const growthBars = useMemo(() => {
-    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const counts = Array(12).fill(0);
-    apartments.forEach((a) => {
-      const d = new Date(a.created_at);
-      if (d.getFullYear() !== year) return;
-      counts[d.getMonth()] += 1;
-    });
-    return MONTHS.map((label, i) => ({ label, value: counts[i] }));
-  }, [apartments, year]);
-
+  const growthBars = useMemo(() => clientGrowthChartData(apartments), [apartments]);
   const growthMax = useMemo(() => Math.max(...growthBars.map((d) => d.value), 1), [growthBars]);
-  const revenueBars = useMemo(() => monthlyRevenueChartData(payments, year), [payments, year]);
+  const revenueBars = useMemo(
+    () => monthlyRevenueLast12Months(payments, apartments),
+    [payments, apartments],
+  );
   const revenueMax = useMemo(() => Math.max(...revenueBars.map((d) => d.value), 1), [revenueBars]);
 
   return (
@@ -178,8 +166,8 @@ const SAAnalytics = () => {
                 <div className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-gray-500 text-sm">Monthly Revenue</p>
-                      <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(metrics.monthlyRevenue)}</p>
+                      <p className="text-gray-500 text-sm">Total Revenue</p>
+                      <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(metrics.totalRevenue)}</p>
                     </div>
                     <div className="p-2 rounded-xl bg-amber-50 text-amber-700">
                       <IndianRupee size={24} />
@@ -220,11 +208,11 @@ const SAAnalytics = () => {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Client Growth (this year)</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Client Growth (last 12 months)</h3>
                   <GrowthBars data={growthBars} max={growthMax} />
                 </div>
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Revenue (this year)</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Revenue (last 12 months)</h3>
                   <RevenueBars data={revenueBars} max={revenueMax} />
                 </div>
               </div>

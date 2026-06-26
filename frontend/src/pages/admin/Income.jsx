@@ -795,9 +795,6 @@ const Income = () => {
               { value: '', label: 'Select Category' },
               ...categories.map((cat) => ({ value: cat.name, label: cat.name })),
               { value: 'Maintenance', label: 'Maintenance' },
-              { value: 'Penalty', label: 'Penalty' },
-              { value: 'Other Income', label: 'Other Income' },
-              { value: 'Other', label: 'Other' },
             ]}
           />
 

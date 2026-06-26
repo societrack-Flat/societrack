@@ -51,6 +51,7 @@ async def delete_admin_user(user_id: str, claims: dict = Depends(require_user)) 
         log.exception("clear admin apartment_id: %s", e)
         raise HTTPException(status_code=503, detail="Could not update user") from e
 
+    auth_deleted = False
     base = settings.supabase_url.rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=20) as client:
@@ -61,19 +62,25 @@ async def delete_admin_user(user_id: str, claims: dict = Depends(require_user)) 
                     "Authorization": f"Bearer {settings.supabase_service_role_key}",
                 },
             )
-            if r.status_code not in (200, 204, 404):
-                log.error("Supabase auth delete %s: %s", r.status_code, r.text[:300])
-                raise HTTPException(status_code=503, detail="Could not delete auth account")
-    except HTTPException:
-        raise
+            if r.status_code in (200, 204, 404):
+                auth_deleted = True
+            else:
+                log.warning(
+                    "Supabase auth delete returned %s (non-fatal): %s",
+                    r.status_code, r.text[:300],
+                )
     except Exception as e:
-        log.exception("Supabase auth delete: %s", e)
-        raise HTTPException(status_code=503, detail="Could not delete auth account") from e
+        log.warning("Supabase auth delete failed (non-fatal): %s", e)
 
     try:
         await sb.delete("users", params={"id": f"eq.{user_id}"})
     except Exception as e:
         log.exception("delete users row: %s", e)
-        raise HTTPException(status_code=503, detail="Auth removed but profile row may remain") from e
+        raise HTTPException(status_code=503, detail="Could not remove user profile") from e
 
-    return {"ok": True, "deleted_user_id": user_id, "email": target.get("email")}
+    return {
+        "ok": True,
+        "deleted_user_id": user_id,
+        "email": target.get("email"),
+        "auth_deleted": auth_deleted,
+    }

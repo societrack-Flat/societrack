@@ -323,7 +323,6 @@ const Maintenance = () => {
         inrForPdf(o),
         inrForPdf(tot),
         status,
-        inrForPdf(rec),
       ];
     });
 
@@ -338,7 +337,6 @@ const Maintenance = () => {
           'Other',
           'Total outstanding',
           'Status',
-          'Amount for month',
         ],
       ],
       body,
@@ -351,7 +349,6 @@ const Maintenance = () => {
           inrForPdf(sumOther),
           inrForPdf(sumTotal),
           '',
-          inrForPdf(sumMonthAmt),
         ],
       ],
       theme: 'striped',
@@ -362,13 +359,12 @@ const Maintenance = () => {
       styles: { fontSize: 8, cellPadding: 1.4, minCellHeight: 6 },
       columnStyles: {
         0: { cellWidth: 20 },
-        1: { cellWidth: 34 },
-        2: { halign: 'right', cellWidth: 32 },
-        3: { halign: 'right', cellWidth: 30 },
-        4: { halign: 'right', cellWidth: 28 },
-        5: { halign: 'right', cellWidth: 32 },
-        6: { halign: 'center', cellWidth: 18 },
-        7: { halign: 'right', cellWidth: 34 },
+        1: { cellWidth: 40 },
+        2: { halign: 'right', cellWidth: 34 },
+        3: { halign: 'right', cellWidth: 32 },
+        4: { halign: 'right', cellWidth: 30 },
+        5: { halign: 'right', cellWidth: 36 },
+        6: { halign: 'center', cellWidth: 22 },
       },
       didParseCell: (data) => {
         if (data.section !== 'foot') return;

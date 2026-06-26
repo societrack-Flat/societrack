@@ -8,6 +8,7 @@ import {
   isPaidPlan,
   isFreeClient,
   monthlyRevenueChartData,
+  totalPlatformRevenue,
 } from '../../lib/superadminMetrics';
 import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
@@ -89,7 +90,7 @@ const SADashboard = () => {
         setLoading(true);
         const [aptRes, payRes] = await Promise.all([
           supabase.from('apartments').select('*').order('created_at', { ascending: false }),
-          supabase.from('payment_history').select('amount, status, created_at').eq('status', 'success'),
+          supabase.from('payment_history').select('amount, status, created_at'),
         ]);
         if (aptRes.error) throw aptRes.error;
         if (payRes.error) throw payRes.error;
@@ -167,14 +168,8 @@ const SADashboard = () => {
     const total = apartments.length;
     const paid = apartments.filter(isPaidPlan).length;
     const free = apartments.filter(isFreeClient).length;
-    const monthlyRevenue = (payments || []).reduce((s, p) => {
-      const d = new Date(p.created_at);
-      const now = new Date();
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-        ? s + Number(p.amount || 0)
-        : s;
-    }, 0);
-    return { total, paid, free, monthlyRevenue };
+    const totalRevenue = totalPlatformRevenue(payments, apartments);
+    return { total, paid, free, totalRevenue };
   }, [apartments, payments]);
 
   const donutSegments = useMemo(() => {
@@ -190,7 +185,10 @@ const SADashboard = () => {
     ];
   }, [apartments]);
 
-  const revenueBars = useMemo(() => monthlyRevenueChartData(payments, year), [payments, year]);
+  const revenueBars = useMemo(
+    () => monthlyRevenueChartData(payments, year, apartments),
+    [payments, year, apartments],
+  );
   const barMax = useMemo(() => Math.max(...revenueBars.map((d) => d.value), 1), [revenueBars]);
 
   return (
@@ -247,8 +245,8 @@ const SADashboard = () => {
                 <div className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-gray-500 text-sm">Monthly Revenue</p>
-                      <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(metrics.monthlyRevenue)}</p>
+                      <p className="text-gray-500 text-sm">Total Revenue</p>
+                      <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(metrics.totalRevenue)}</p>
                     </div>
                     <div className="p-2 rounded-xl bg-amber-50 text-amber-700">
                       <IndianRupee size={24} />

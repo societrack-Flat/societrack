@@ -17,6 +17,9 @@ dist-ssr
 .env
 .env.*
 !.env.example
+CREDENTIALS.local.md
+*.keystore
+*.jks
 
 # Frontend (Vite / React)
 frontend/node_modules/
