@@ -28,8 +28,10 @@ const toDataUrl = async (url) => {
 const ResReports = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState('all'); // all | custom | 1-12
+  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
   const [stats, setStats] = useState({
     totalExpenses: 0,
     totalIncome: 0,
@@ -50,48 +52,94 @@ const ResReports = () => {
     } else if (isResident || profileLoaded) {
       setLoading(false);
     }
-  }, [apartmentId, isResident, profileLoaded, selectedMonth, selectedYear, residentFlatId]);
+  }, [apartmentId, isResident, profileLoaded, selectedMonth, selectedYear, customFrom, customTo, residentFlatId]);
+
+  const isSingleMonthPeriod =
+    selectedMonth !== 'all' &&
+    selectedMonth !== 'custom' &&
+    selectedYear !== 'all';
+
+  const getPeriodLabel = () => {
+    if (selectedMonth === 'custom') {
+      if (customFrom && customTo) return `${customFrom} to ${customTo}`;
+      if (customFrom) return `From ${customFrom}`;
+      if (customTo) return `Until ${customTo}`;
+      return 'Custom range';
+    }
+    if (isSingleMonthPeriod) {
+      return `${getMonthName(parseInt(selectedMonth, 10))} ${selectedYear}`;
+    }
+    if (selectedYear !== 'all') return `Year ${selectedYear}`;
+    return 'All time';
+  };
+
+  const getExportFileSuffix = () => getPeriodLabel().replace(/\s+/g, '_').replace(/[^\w-]/g, '_');
 
   const fetchReportData = async () => {
     try {
       setLoading(true);
 
-      const startDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
-      const endDate = selectedMonth === 12
-        ? `${selectedYear + 1}-01-01`
-        : `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`;
+      let startDate = null;
+      let endDate = null;
+
+      if (selectedMonth === 'custom') {
+        if (customFrom) startDate = customFrom;
+        if (customTo) {
+          const d = new Date(customTo);
+          if (!Number.isNaN(d.getTime())) {
+            d.setDate(d.getDate() + 1);
+            endDate = d.toISOString().slice(0, 10);
+          }
+        }
+      } else {
+        const yearNum = selectedYear === 'all' ? null : parseInt(selectedYear, 10);
+        const monthNum = selectedMonth === 'all' ? null : parseInt(selectedMonth, 10);
+        if (yearNum && monthNum) {
+          startDate = `${yearNum}-${String(monthNum).padStart(2, '0')}-01`;
+          endDate =
+            monthNum === 12
+              ? `${yearNum + 1}-01-01`
+              : `${yearNum}-${String(monthNum + 1).padStart(2, '0')}-01`;
+        } else if (yearNum) {
+          startDate = `${yearNum}-01-01`;
+          endDate = `${yearNum + 1}-01-01`;
+        }
+      }
+
+      let expenseQuery = supabase
+        .from('expenses')
+        .select('*')
+        .eq('apartment_id', apartmentId)
+        .order('date', { ascending: true });
+      let incomeQuery = supabase
+        .from('income')
+        .select('*')
+        .eq('apartment_id', apartmentId)
+        .order('date', { ascending: true });
+      if (startDate) expenseQuery = expenseQuery.gte('date', startDate);
+      if (endDate) expenseQuery = expenseQuery.lt('date', endDate);
+      if (startDate) incomeQuery = incomeQuery.gte('date', startDate);
+      if (endDate) incomeQuery = incomeQuery.lt('date', endDate);
 
       const [
         { data: monthExpenses },
         { data: monthIncome },
         { data: flatRows },
       ] = await Promise.all([
-        supabase
-          .from('expenses')
-          .select('*')
-          .eq('apartment_id', apartmentId)
-          .gte('date', startDate)
-          .lt('date', endDate)
-          .order('date', { ascending: true }),
-        supabase
-          .from('income')
-          .select('*')
-          .eq('apartment_id', apartmentId)
-          .gte('date', startDate)
-          .lt('date', endDate)
-          .order('date', { ascending: true }),
+        expenseQuery,
+        incomeQuery,
         supabase.from('flats').select('id, flat_number, owner_name').eq('apartment_id', apartmentId),
       ]);
 
-      // Per-flat resident: fetch their own maintenance for the selected month
+      // Per-flat resident: maintenance only for a single calendar month
       let maintenanceRecord = null;
-      if (residentFlatId) {
+      if (residentFlatId && isSingleMonthPeriod) {
         const { data: mData } = await supabase
           .from('maintenance')
           .select('*, flats(flat_number, owner_name)')
           .eq('flat_id', residentFlatId)
-          .eq('month', selectedMonth)
-          .eq('year', selectedYear)
+          .eq('month', parseInt(selectedMonth, 10))
+          .eq('year', parseInt(selectedYear, 10))
           .maybeSingle();
         maintenanceRecord = mData;
       }
@@ -138,7 +186,7 @@ const ResReports = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Income');
     XLSX.utils.sheet_add_aoa(ws, [['', '', '', 'Total:', stats.totalIncome]], { origin: -1 });
-    await downloadXlsx(wb, `Income_${getMonthName(selectedMonth)}_${selectedYear}.xlsx`);
+    await downloadXlsx(wb, `Income_${getExportFileSuffix()}.xlsx`);
     toast.success('Income Excel exported');
   };
 
@@ -161,7 +209,7 @@ const ResReports = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Expenses');
     XLSX.utils.sheet_add_aoa(ws, [['', '', '', 'Total:', stats.totalExpenses]], { origin: -1 });
-    await downloadXlsx(wb, `Expenses_${getMonthName(selectedMonth)}_${selectedYear}.xlsx`);
+    await downloadXlsx(wb, `Expenses_${getExportFileSuffix()}.xlsx`);
     toast.success('Expense Excel exported');
   };
 
@@ -179,7 +227,7 @@ const ResReports = () => {
     doc.setFontSize(10);
     doc.setTextColor(100);
     doc.text(apartment?.name || '', 14, 28);
-    doc.text(`Resident Report — ${getMonthName(selectedMonth)} ${selectedYear}${residentFlatNumber ? ` | Flat ${residentFlatNumber}` : ''}`, 14, 34);
+    doc.text(`Resident Report — ${getPeriodLabel()}${residentFlatNumber ? ` | Flat ${residentFlatNumber}` : ''}`, 14, 34);
 
     doc.setDrawColor(200);
     doc.setFillColor(249, 250, 251);
@@ -245,19 +293,26 @@ const ResReports = () => {
       });
     }
 
-    await downloadPdf(doc, `Resident_Report_${getMonthName(selectedMonth)}_${selectedYear}.pdf`);
+    await downloadPdf(doc, `Resident_Report_${getExportFileSuffix()}.pdf`);
     toast.success('PDF exported');
   };
 
-  const months = Array.from({ length: 12 }, (_, i) => ({
-    value: i + 1,
-    label: getMonthName(i + 1),
-  }));
+  const months = [
+    { value: 'all', label: 'All Months' },
+    { value: 'custom', label: 'Custom' },
+    ...Array.from({ length: 12 }, (_, i) => ({
+      value: String(i + 1),
+      label: getMonthName(i + 1),
+    })),
+  ];
 
-  const years = Array.from({ length: 5 }, (_, i) => ({
-    value: new Date().getFullYear() - i,
-    label: (new Date().getFullYear() - i).toString(),
-  }));
+  const years = [
+    { value: 'all', label: 'All Years' },
+    ...Array.from({ length: 10 }, (_, i) => {
+      const y = new Date().getFullYear() - i;
+      return { value: String(y), label: String(y) };
+    }),
+  ];
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -274,15 +329,48 @@ const ResReports = () => {
 
           {/* Filters & Export */}
           <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <div className="flex gap-4">
-              <select value={selectedMonth} onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                className="bg-white border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500">
-                {months.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            <div className="flex flex-wrap gap-4">
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="bg-white border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                {months.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
               </select>
-              <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                className="bg-white border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500">
-                {years.map(y => <option key={y.value} value={y.value}>{y.label}</option>)}
-              </select>
+
+              {selectedMonth !== 'custom' && (
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                  className="bg-white border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  {years.map((y) => (
+                    <option key={y.value} value={y.value}>{y.label}</option>
+                  ))}
+                </select>
+              )}
+
+              {selectedMonth === 'custom' && (
+                <>
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    className="bg-white border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    aria-label="From date"
+                  />
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    min={customFrom || undefined}
+                    className="bg-white border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    aria-label="To date"
+                  />
+                </>
+              )}
             </div>
             <div className="flex flex-wrap gap-2 sm:ml-auto">
               <Button variant="outline" icon={FileSpreadsheet} onClick={exportExpenseExcel}>
@@ -307,13 +395,13 @@ const ResReports = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
                 <Card
                   icon={TrendingDown}
-                  label="Society Expenses This Month"
+                  label={isSingleMonthPeriod ? 'Society Expenses This Month' : 'Society Expenses'}
                   value={formatCurrency(stats.totalExpenses)}
                   color="red"
                 />
                 <Card
                   icon={TrendingUp}
-                  label="Society Income This Month"
+                  label={isSingleMonthPeriod ? 'Society Income This Month' : 'Society Income'}
                   value={formatCurrency(stats.totalIncome)}
                   color="green"
                 />
@@ -340,7 +428,7 @@ const ResReports = () => {
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                     <Clock size={20} className="text-yellow-500" />
-                    Maintenance — {getMonthName(selectedMonth)} {selectedYear}
+                    Maintenance — {getPeriodLabel()}
                   </h3>
                   <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
                     <div>
@@ -365,7 +453,7 @@ const ResReports = () => {
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                   <TrendingUp size={20} className="text-green-500" />
-                  Society Income — {getMonthName(selectedMonth)} {selectedYear}
+                  Society Income — {getPeriodLabel()}
                 </h3>
                 {incomeData.length === 0 ? (
                   <p className="text-gray-500 text-center py-8">No income records for this period</p>

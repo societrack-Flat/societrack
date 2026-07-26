@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Mail, Phone, Lock, User, ArrowRight, ArrowLeft,
+  Mail, Lock, User, ArrowRight, ArrowLeft,
   Eye, EyeOff, Building2, MapPin, CheckCircle,
   Shield, Zap, Sparkles,
 } from 'lucide-react';
@@ -22,7 +22,6 @@ const Signup = () => {
   const [formData, setFormData] = useState({
     name: user?.user_metadata?.full_name || user?.user_metadata?.name || '',
     email: user?.email || '',
-    phone: '',
     password: '',
     confirmPassword: '',
   });
@@ -38,14 +37,6 @@ const Signup = () => {
   const validate = () => {
     const e = {};
     if (!formData.name.trim()) e.name = 'Name is required';
-    const phoneRaw = (formData.phone || '').trim();
-    const digits = phoneRaw.replace(/\D/g, '');
-    if (!phoneRaw) e.phone = 'Phone number is required';
-    else if (phoneRaw.startsWith('+')) {
-      if (digits.length < 11 || digits.length > 15) e.phone = 'Phone number is invalid';
-    } else if (digits.length !== 10) {
-      e.phone = 'Enter a 10-digit phone number';
-    }
     if (!isOAuthCompletion) {
       if (!formData.email.trim()) e.email = 'Email is required';
       else if (!/\S+@\S+\.\S+/.test(formData.email)) e.email = 'Email is invalid';
@@ -70,12 +61,10 @@ const Signup = () => {
         }
         result = await completeSetup({
           name: formData.name,
-          phone: formData.phone,
         });
       } else {
         result = await signUp(formData.email, formData.password, {
           name: formData.name,
-          phone: formData.phone,
         });
       }
 
@@ -375,7 +364,6 @@ const Signup = () => {
               {[
                 { label: 'Full Name', name: 'name', type: 'text', placeholder: 'Enter your full name', Icon: User },
                 ...(!isOAuthCompletion ? [{ label: 'Email Address', name: 'email', type: 'email', placeholder: 'Enter your email', Icon: Mail }] : []),
-                { label: 'Phone Number', name: 'phone', type: 'tel', placeholder: '+91 9876543210', Icon: Phone },
               ].map(({ label, name, type, placeholder, Icon }) => (
                 <div key={name}>
                   <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>

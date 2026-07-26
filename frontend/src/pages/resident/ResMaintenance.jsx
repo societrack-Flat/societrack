@@ -7,7 +7,8 @@ import TopBar from '../../components/TopBar';
 import Card from '../../components/Card';
 import EmptyState from '../../components/EmptyState';
 import toast from 'react-hot-toast';
-import { dueFromFlat } from '../../utils/maintenancePending';
+import { buildMaintenanceRowView } from '../../utils/maintenanceDue';
+import { getMaintenanceMenuLabel } from '../../utils/apartmentLabels';
 
 const ResMaintenance = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -24,6 +25,7 @@ const ResMaintenance = () => {
   });
 
   const { apartment, residentApartmentId, isResident, profileLoaded, residentFlatId } = useAuth();
+  const maintenanceMenuLabel = getMaintenanceMenuLabel(apartment);
   const apartmentId = apartment?.id || residentApartmentId;
   // Per-flat residents only see their own flat
   const isPerFlatResident = !!residentFlatId;
@@ -56,22 +58,29 @@ const ResMaintenance = () => {
           .eq('year', selectedYear)
           .maybeSingle();
 
-        const baseDue = dueFromFlat(flatData);
+        let closedMonthKeys = new Set();
+        const { data: closedMonths } = await supabase
+          .from('maintenance_month_closures')
+          .select('close_year, close_month')
+          .eq('apartment_id', apartmentId);
+        if (closedMonths) {
+          closedMonthKeys = new Set(
+            closedMonths.map((row) => `${Number(row.close_year)}-${Number(row.close_month)}`)
+          );
+        }
+
+        const periodContext = { selectedYear, selectedMonth, closedMonthKeys };
+        const view = buildMaintenanceRowView(flatData, maintenanceData, periodContext);
         let record;
         if (maintenanceData) {
-          const raw = Number(maintenanceData.amount ?? 0);
-          const amount =
-            maintenanceData.status === 'pending' && (raw === 0 || Number.isNaN(raw)) ? baseDue : raw;
-          record = { ...maintenanceData, amount, flats: flatData };
+          record = { ...maintenanceData, ...view, flats: flatData };
         } else {
           record = {
             id: null,
             flat_id: residentFlatId,
             month: selectedMonth,
             year: selectedYear,
-            amount: baseDue,
-            status: baseDue > 0 ? 'pending' : 'paid',
-            paid_date: null,
+            ...view,
             flats: flatData,
           };
         }
@@ -81,7 +90,7 @@ const ResMaintenance = () => {
           totalFlats: 1,
           paidCount: record.status === 'paid' ? 1 : 0,
           pendingCount: record.status === 'pending' ? 1 : 0,
-          pendingAmount: record.status === 'pending' ? Number(record.amount || 0) : 0,
+          pendingAmount: record.status === 'pending' ? Number(record.total || 0) : 0,
         });
         return;
       }
@@ -104,6 +113,19 @@ const ResMaintenance = () => {
         .eq('month', selectedMonth)
         .eq('year', selectedYear);
 
+      let closedMonthKeys = new Set();
+      const { data: closedMonths } = await supabase
+        .from('maintenance_month_closures')
+        .select('close_year, close_month')
+        .eq('apartment_id', apartmentId);
+      if (closedMonths) {
+        closedMonthKeys = new Set(
+          closedMonths.map((row) => `${Number(row.close_year)}-${Number(row.close_month)}`)
+        );
+      }
+
+      const periodContext = { selectedYear, selectedMonth, closedMonthKeys };
+
       // Create map of existing records
       const existingMap = new Map(
         maintenanceData?.map(m => [m.flat_id, m]) || []
@@ -112,13 +134,10 @@ const ResMaintenance = () => {
       // Combine with all flats (same due logic as admin Maintenance tab)
       const combinedData = (flats || []).map((flat) => {
         const existing = existingMap.get(flat.id);
-        const baseDue = dueFromFlat(flat);
+        const view = buildMaintenanceRowView(flat, existing, periodContext);
 
         if (existing) {
-          const raw = Number(existing.amount ?? 0);
-          const amount =
-            existing.status === 'pending' && (raw === 0 || Number.isNaN(raw)) ? baseDue : raw;
-          return { ...existing, amount, flats: flat };
+          return { ...existing, ...view, flats: flat };
         }
 
         return {
@@ -126,9 +145,7 @@ const ResMaintenance = () => {
           flat_id: flat.id,
           month: selectedMonth,
           year: selectedYear,
-          amount: baseDue,
-          status: baseDue > 0 ? 'pending' : 'paid',
-          paid_date: null,
+          ...view,
           flats: flat,
         };
       });
@@ -140,7 +157,7 @@ const ResMaintenance = () => {
       const pendingCount = combinedData.filter(m => m.status === 'pending').length;
       const pendingAmount = combinedData
         .filter(m => m.status === 'pending')
-        .reduce((sum, m) => sum + Number(m.amount || 0), 0);
+        .reduce((sum, m) => sum + Number(m.total || 0), 0);
 
       setStats({
         totalFlats: flats?.length || 0,
@@ -179,11 +196,11 @@ const ResMaintenance = () => {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} role="resident" />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar onMenuClick={() => setSidebarOpen(true)} title="Maintenance Status" />
+        <TopBar onMenuClick={() => setSidebarOpen(true)} title={maintenanceMenuLabel} />
         
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">Maintenance Status</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{maintenanceMenuLabel}</h1>
             <p className="text-gray-500 mt-1">View maintenance payment status for all flats</p>
           </div>
 

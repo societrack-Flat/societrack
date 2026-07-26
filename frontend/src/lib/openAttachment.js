@@ -1,7 +1,7 @@
 import { getSignedUrl } from './supabaseClient';
 import { getApiBaseUrl } from './apiBaseUrl';
 import { isNativeApp } from './nativeApp';
-import { openRemoteFile } from './nativeFile';
+import { Browser } from '@capacitor/browser';
 
 function readResidentSession() {
   try {
@@ -12,9 +12,29 @@ function readResidentSession() {
   }
 }
 
+/** Strip bucket prefix or legacy full URLs — storage path only. */
+export function normalizeAttachmentPath(attachmentPath) {
+  let path = String(attachmentPath || '').trim();
+  if (!path) return '';
+
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    for (const marker of ['/attachments/', '/object/sign/attachments/', '/object/public/attachments/']) {
+      const idx = path.indexOf(marker);
+      if (idx >= 0) {
+        path = path.slice(idx + marker.length);
+        break;
+      }
+    }
+    if (path.includes('?')) path = path.split('?')[0];
+  }
+
+  return path.replace(/^\/+/, '');
+}
+
 function filenameFromPath(attachmentPath) {
-  if (!attachmentPath) return 'attachment';
-  const parts = String(attachmentPath).split('/');
+  const normalized = normalizeAttachmentPath(attachmentPath);
+  if (!normalized) return 'attachment';
+  const parts = normalized.split('/');
   return parts[parts.length - 1] || 'attachment';
 }
 
@@ -23,12 +43,20 @@ export async function openUrlInBrowser(url, filename = 'attachment') {
   if (!url) return;
 
   if (isNativeApp()) {
-    await openRemoteFile(url, filename);
+    await Browser.open({ url });
     return;
   }
 
   const popup = window.open(url, '_blank', 'noopener,noreferrer');
-  if (!popup) window.location.assign(url);
+  if (!popup) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
 }
 
 async function getResidentAttachmentUrl(attachmentPath) {
@@ -37,13 +65,16 @@ async function getResidentAttachmentUrl(attachmentPath) {
     throw new Error('Resident session expired. Please sign in again.');
   }
 
+  const normalizedPath = normalizeAttachmentPath(attachmentPath);
+  if (!normalizedPath) throw new Error('Invalid attachment');
+
   const response = await fetch(`${getApiBaseUrl()}/api/resident/attachment-url`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       viewer_username: session.username,
       viewer_password: session.viewer_password,
-      attachment_path: attachmentPath,
+      attachment_path: normalizedPath,
     }),
   });
 
@@ -66,14 +97,15 @@ async function getResidentAttachmentUrl(attachmentPath) {
  * Resolve a storage path to a viewable URL (admin: Supabase auth; resident: backend signed URL).
  */
 export async function resolveAttachmentUrl(attachmentPath) {
-  if (!attachmentPath) return null;
+  const normalizedPath = normalizeAttachmentPath(attachmentPath);
+  if (!normalizedPath) return null;
 
   const session = readResidentSession();
   if (session?.username) {
-    return getResidentAttachmentUrl(attachmentPath);
+    return getResidentAttachmentUrl(normalizedPath);
   }
 
-  return getSignedUrl(attachmentPath);
+  return getSignedUrl(normalizedPath);
 }
 
 /** Open an income/expense attachment (works on laptop, phone browser, and Android app). */

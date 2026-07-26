@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -15,15 +15,32 @@ import {
   X,
   CreditCard,
   Users,
+  Pencil,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import BrandLogo from './BrandLogo';
+import MenuLabelEditModal from './MenuLabelEditModal';
+import { getFlatsMenuLabel, getMaintenanceMenuLabel } from '../utils/apartmentLabels';
 
 const Sidebar = ({ isOpen, onClose, role }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { userProfile, apartment, signOut, isResident, saManagedApartmentId, exitSaManageMode } = useAuth();
+  const {
+    userProfile,
+    apartment,
+    signOut,
+    isResident,
+    saManagedApartmentId,
+    exitSaManageMode,
+    refreshActiveApartment,
+  } = useAuth();
   const isSaManaging = userProfile?.role === 'super_admin' && !!saManagedApartmentId;
+  const [editLabelType, setEditLabelType] = useState(null);
+
+  const flatsMenuLabel = getFlatsMenuLabel(apartment);
+  const maintenanceMenuLabel = getMaintenanceMenuLabel(apartment);
+  const canEditMenuLabels =
+    !isResident && (userProfile?.role === 'admin' || isSaManaging);
 
   const adminNavItems = [
     {
@@ -31,7 +48,7 @@ const Sidebar = ({ isOpen, onClose, role }) => {
       items: [
         { name: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
         { name: 'Apartments', icon: Building2, path: '/admin/apartments' },
-        { name: 'Flats', icon: DoorOpen, path: '/admin/flats' },
+        { name: flatsMenuLabel, icon: DoorOpen, path: '/admin/flats', editableLabel: 'flats' },
         { name: 'Income', icon: IndianRupee, path: '/admin/income' },
         { name: 'Expenses', icon: Receipt, path: '/admin/expenses' },
       ],
@@ -40,7 +57,7 @@ const Sidebar = ({ isOpen, onClose, role }) => {
       title: 'MANAGEMENT',
       items: [
         { name: 'Reports', icon: BarChart3, path: '/admin/reports' },
-        { name: 'Maintenance', icon: Clock, path: '/admin/maintenance' },
+        { name: maintenanceMenuLabel, icon: Clock, path: '/admin/maintenance', editableLabel: 'maintenance' },
         { name: 'Announcements', icon: Megaphone, path: '/admin/announcements' },
       ],
     },
@@ -66,19 +83,22 @@ const Sidebar = ({ isOpen, onClose, role }) => {
     },
   ];
 
-  const residentNavItems = [
-    {
-      title: 'MAIN',
-      items: [
-        { name: 'Dashboard', icon: LayoutDashboard, path: '/resident/dashboard' },
-        { name: 'Income', icon: IndianRupee, path: '/resident/income' },
-        { name: 'Expenses', icon: Receipt, path: '/resident/expenses' },
-        { name: 'Maintenance', icon: Clock, path: '/resident/maintenance' },
-        { name: 'Announcements', icon: Megaphone, path: '/resident/announcements' },
-        { name: 'Reports', icon: BarChart3, path: '/resident/reports' },
-      ],
-    },
-  ];
+  const residentNavItems = useMemo(
+    () => [
+      {
+        title: 'MAIN',
+        items: [
+          { name: 'Dashboard', icon: LayoutDashboard, path: '/resident/dashboard' },
+          { name: 'Income', icon: IndianRupee, path: '/resident/income' },
+          { name: 'Expenses', icon: Receipt, path: '/resident/expenses' },
+          { name: maintenanceMenuLabel, icon: Clock, path: '/resident/maintenance' },
+          { name: 'Announcements', icon: Megaphone, path: '/resident/announcements' },
+          { name: 'Reports', icon: BarChart3, path: '/resident/reports' },
+        ],
+      },
+    ],
+    [maintenanceMenuLabel]
+  );
 
   const getNavItems = () => {
     if (isResident) return residentNavItems;
@@ -165,21 +185,42 @@ const Sidebar = ({ isOpen, onClose, role }) => {
                     const isActive = location.pathname === item.path;
                     return (
                       <li key={item.path}>
-                        <NavLink
-                          to={item.path}
-                          onClick={onClose}
+                        <div
                           className={`
-                            flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
-                            transition-colors duration-200
-                            ${isActive
-                              ? 'bg-blue-500 text-white'
-                              : 'text-slate-300 hover:bg-slate-700 hover:text-white'
-                            }
+                            flex items-center gap-1 rounded-lg transition-colors duration-200
+                            ${isActive ? 'bg-blue-500 text-white' : 'text-slate-300 hover:bg-slate-700 hover:text-white'}
                           `}
                         >
-                          <Icon size={20} />
-                          {item.name}
-                        </NavLink>
+                          <NavLink
+                            to={item.path}
+                            onClick={onClose}
+                            className={`
+                              flex flex-1 items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium min-w-0
+                              ${isActive ? 'text-white' : 'text-inherit'}
+                            `}
+                          >
+                            <Icon size={20} className="shrink-0" />
+                            <span className="truncate">{item.name}</span>
+                          </NavLink>
+                          {canEditMenuLabels && item.editableLabel && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setEditLabelType(item.editableLabel);
+                              }}
+                              className={`
+                                shrink-0 p-1.5 mr-1 rounded-md transition-colors
+                                ${isActive ? 'hover:bg-blue-600 text-white/90' : 'hover:bg-slate-600 text-slate-400 hover:text-white'}
+                              `}
+                              aria-label={`Rename ${item.name} section`}
+                              title="Rename section"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          )}
+                        </div>
                       </li>
                     );
                   })}
@@ -216,6 +257,14 @@ const Sidebar = ({ isOpen, onClose, role }) => {
           </div>
         </div>
       </aside>
+
+      <MenuLabelEditModal
+        isOpen={!!editLabelType}
+        onClose={() => setEditLabelType(null)}
+        labelType={editLabelType}
+        apartment={apartment}
+        onSaved={refreshActiveApartment}
+      />
     </>
   );
 };

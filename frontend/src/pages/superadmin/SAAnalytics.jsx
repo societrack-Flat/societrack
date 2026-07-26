@@ -1,59 +1,34 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Building2, CreditCard, Users, IndianRupee, AlertTriangle, Clock, Ban } from 'lucide-react';
+import { Building2, CreditCard, Users, IndianRupee, AlertTriangle, Clock, Ban, TrendingUp } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, formatCurrency } from '../../lib/supabaseClient';
 import {
   isPaidPlan,
   isFreeClient,
-  monthlyRevenueLast12Months,
-  clientGrowthChartData,
+  monthlyRevenueChartData,
+  clientGrowthChartDataForYear,
   totalPlatformRevenue,
+  availableYears,
+  buildPeriodRevenueSummary,
+  countExpiringWithinDays,
+  countGracePeriod,
+  countAutoSuspended,
+  newClientsForMonth,
+  newClientsForYear,
 } from '../../lib/superadminMetrics';
 import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
+import SuperAdminPeriodFilter from '../../components/superadmin/SuperAdminPeriodFilter';
+import { SuperAdminRevenueBarChart, SuperAdminGrowthBarChart } from '../../components/superadmin/SuperAdminBarChart';
 import toast from 'react-hot-toast';
-
-function GrowthBars({ data, max }) {
-  const m = max || Math.max(...data.map((d) => d.value), 1);
-  return (
-    <div className="flex items-end justify-between gap-1 h-52 pt-4 border-b border-gray-200">
-      {data.map((d) => (
-        <div key={d.label} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-          <div
-            className="w-full max-w-[28px] rounded-t bg-indigo-500/90 mx-auto"
-            style={{ height: `${Math.max(4, (d.value / m) * 100)}%` }}
-            title={`${d.label}: ${d.value}`}
-          />
-          <span className="text-[10px] text-gray-500 truncate w-full text-center">{d.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function RevenueBars({ data, max }) {
-  const m = max || Math.max(...data.map((d) => d.value), 1);
-  return (
-    <div className="flex items-end justify-between gap-1 h-52 pt-4 border-b border-gray-200">
-      {data.map((d) => (
-        <div key={d.label} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-          <div
-            className="w-full max-w-[28px] rounded-t bg-rose-500/85 mx-auto"
-            style={{ height: `${Math.max(4, (d.value / m) * 100)}%` }}
-            title={`${d.label}: ${formatCurrency(d.value)}`}
-          />
-          <span className="text-[10px] text-gray-500 truncate w-full text-center">{d.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 const SAAnalytics = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [apartments, setApartments] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState('all');
 
   const { userProfile } = useAuth();
 
@@ -79,38 +54,64 @@ const SAAnalytics = () => {
     load();
   }, []);
 
+  const yearOptions = useMemo(
+    () => availableYears(payments, apartments),
+    [payments, apartments],
+  );
+
+  useEffect(() => {
+    if (yearOptions.length && !yearOptions.includes(selectedYear)) {
+      setSelectedYear(yearOptions[0]);
+    }
+  }, [yearOptions, selectedYear]);
+
   const metrics = useMemo(() => {
     const total = apartments.length;
     const paid = apartments.filter(isPaidPlan).length;
     const free = apartments.filter(isFreeClient).length;
-    const totalRevenue = totalPlatformRevenue(payments, apartments);
-
-    const now = Date.now();
-    const sevenDays = 7 * 24 * 60 * 60 * 1000;
-    let expiringSoon = 0;
-    apartments.forEach((a) => {
-      const end = a.trial_end_date ? new Date(a.trial_end_date).getTime() : null;
-      if (end && end > now && end <= now + sevenDays) expiringSoon += 1;
+    const allTimeRevenue = totalPlatformRevenue(payments, apartments);
+    const period = buildPeriodRevenueSummary({
+      payments,
+      year: selectedYear,
+      monthFilter: selectedMonth,
+      apartments,
     });
+    const newClients = selectedMonth === 'all'
+      ? newClientsForYear(apartments, selectedYear)
+      : newClientsForMonth(apartments, selectedYear, Number(selectedMonth));
 
     return {
       total,
       paid,
       free,
-      totalRevenue,
-      expiringSoon,
-      gracePeriod: 0,
-      autoSuspended: 0,
+      allTimeRevenue,
+      period,
+      newClients,
+      expiringSoon: countExpiringWithinDays(apartments, 7),
+      gracePeriod: countGracePeriod(apartments),
+      autoSuspended: countAutoSuspended(apartments),
     };
-  }, [apartments, payments]);
+  }, [apartments, payments, selectedYear, selectedMonth]);
 
-  const growthBars = useMemo(() => clientGrowthChartData(apartments), [apartments]);
+  const growthBars = useMemo(
+    () => clientGrowthChartDataForYear(apartments, selectedYear),
+    [apartments, selectedYear],
+  );
   const growthMax = useMemo(() => Math.max(...growthBars.map((d) => d.value), 1), [growthBars]);
+
   const revenueBars = useMemo(
-    () => monthlyRevenueLast12Months(payments, apartments),
-    [payments, apartments],
+    () => monthlyRevenueChartData(payments, selectedYear),
+    [payments, selectedYear],
   );
   const revenueMax = useMemo(() => Math.max(...revenueBars.map((d) => d.value), 1), [revenueBars]);
+  const highlightIndex = selectedMonth === 'all' ? null : Number(selectedMonth);
+
+  const revenueCardTitle = metrics.period.hasSingleMonth
+    ? `Monthly Revenue (${metrics.period.monthLabel} ${selectedYear})`
+    : `Year Revenue (${selectedYear})`;
+  const revenueCardValue = metrics.period.hasSingleMonth
+    ? metrics.period.monthTotal
+    : metrics.period.yearTotal;
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -131,7 +132,15 @@ const SAAnalytics = () => {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+              <SuperAdminPeriodFilter
+                years={yearOptions}
+                selectedYear={selectedYear}
+                onYearChange={setSelectedYear}
+                selectedMonth={selectedMonth}
+                onMonthChange={setSelectedMonth}
+              />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
                 <div className="rounded-2xl bg-blue-600 text-white p-6 shadow-sm">
                   <div className="flex items-start justify-between">
                     <div>
@@ -166,11 +175,25 @@ const SAAnalytics = () => {
                 <div className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-gray-500 text-sm">Total Revenue</p>
-                      <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(metrics.totalRevenue)}</p>
+                      <p className="text-gray-500 text-sm">Total Revenue (All Time)</p>
+                      <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(metrics.allTimeRevenue)}</p>
                     </div>
                     <div className="p-2 rounded-xl bg-amber-50 text-amber-700">
                       <IndianRupee size={24} />
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-gray-500 text-sm">{revenueCardTitle}</p>
+                      <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(revenueCardValue)}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        New clients: {metrics.newClients}
+                      </p>
+                    </div>
+                    <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+                      <TrendingUp size={24} />
                     </div>
                   </div>
                 </div>
@@ -208,12 +231,38 @@ const SAAnalytics = () => {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Client Growth (last 12 months)</h3>
-                  <GrowthBars data={growthBars} max={growthMax} />
+                  <div className="mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Client Growth ({selectedYear})
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {selectedMonth === 'all'
+                        ? `${metrics.newClients} new clients this year`
+                        : `${metrics.newClients} new in ${metrics.period.monthLabel} ${selectedYear}`}
+                    </p>
+                  </div>
+                  <SuperAdminGrowthBarChart
+                    data={growthBars}
+                    max={growthMax}
+                    highlightIndex={highlightIndex}
+                  />
                 </div>
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Revenue (last 12 months)</h3>
-                  <RevenueBars data={revenueBars} max={revenueMax} />
+                  <div className="mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Monthly Revenue ({selectedYear})
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {selectedMonth === 'all'
+                        ? `Year total: ${formatCurrency(metrics.period.yearTotal)} · All time: ${formatCurrency(metrics.allTimeRevenue)}`
+                        : `${metrics.period.monthLabel} ${selectedYear}: ${formatCurrency(metrics.period.monthTotal)} · Year: ${formatCurrency(metrics.period.yearTotal)}`}
+                    </p>
+                  </div>
+                  <SuperAdminRevenueBarChart
+                    data={revenueBars}
+                    max={revenueMax}
+                    highlightIndex={highlightIndex}
+                  />
                 </div>
               </div>
             </>

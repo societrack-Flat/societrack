@@ -630,6 +630,29 @@ export const AuthProvider = ({ children }) => {
     setApartment(null);
   };
 
+  const refreshActiveApartment = async () => {
+    const aptId =
+      saManagedApartmentId ||
+      apartment?.id ||
+      userProfile?.apartment_id ||
+      null;
+    if (!aptId) return { success: false, error: new Error('No active apartment') };
+
+    try {
+      const { data, error } = await supabase.from('apartments').select('*').eq('id', aptId).maybeSingle();
+      if (error) throw error;
+      if (data) {
+        setApartment(data);
+        setAdminApartments((prev) => prev.map((item) => (item.id === data.id ? data : item)));
+        if (userProfile) writeCachedProfile(userProfile, data);
+      }
+      return { success: true, apartment: data || null };
+    } catch (e) {
+      console.error('[refreshActiveApartment]', e);
+      return { success: false, error: e };
+    }
+  };
+
   const enterSaManageMode = async (apartmentId) => {
     if (!apartmentId) return { success: false, error: new Error('No apartment') };
     try {
@@ -1310,6 +1333,7 @@ export const AuthProvider = ({ children }) => {
     retryBootstrap,
     refreshUserProfile,
     refreshAdminApartments,
+    refreshActiveApartment,
     setActiveApartment,
     signInWithEmail,
     signInWithPhone,

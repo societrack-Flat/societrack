@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, Phone, Lock, Eye, EyeOff, User, Building2, Home } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, User, Building2, Home } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
 import { isNativeApp, signInWithOAuthNative } from '../../lib/mobileOAuth';
@@ -274,20 +274,18 @@ const BuildingScene = ({ loginSuccess, loginAttempted, userType }) => {
 // ── Main Login Component ─────────────────────────────────────────────────────
 const Login = () => {
   const [userType, setUserType] = useState('admin');
-  const [loginMethod, setLoginMethod] = useState('email');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
-    phone: '',
     password: '',
     viewerUsername: '',
     viewerPassword: '',
   });
 
   const navigate = useNavigate();
-  const { signInWithEmail, signInWithPhone, signInAsResident } = useAuth();
+  const { signInWithEmail, signInAsResident } = useAuth();
 
   const routeAfterLogin = (profile) => {
     const role = profile?.role;
@@ -320,13 +318,7 @@ const Login = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      let result;
-      if (loginMethod === 'phone') {
-        result = await signInWithPhone(formData.phone, formData.password);
-      } else {
-        result = await signInWithEmail(formData.email, formData.password);
-      }
-
+      const result = await signInWithEmail(formData.email, formData.password);
       if (!result.success) {
         return;
       }
@@ -488,57 +480,22 @@ const Login = () => {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
                 >
-                  {/* Email / Phone toggle */}
-                  <div className="flex gap-2 mb-6">
-                    {['email', 'phone'].map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => setLoginMethod(m)}
-                        className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all capitalize ${
-                          loginMethod === m
-                            ? 'bg-green-100 text-green-700 border-2 border-green-300'
-                            : 'bg-gray-50 text-gray-600 border-2 border-transparent'
-                        }`}
-                      >
-                        {m}
-                      </button>
-                    ))}
-                  </div>
-
                   <form onSubmit={handleAdminLogin} className="space-y-4">
-                    {loginMethod === 'email' ? (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                        <div className="relative">
-                          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                          <input
-                            type="email"
-                            name="email"
-                            value={formData.email}
-                            onChange={handleChange}
-                            placeholder="Enter your email"
-                            className="w-full bg-gray-50 rounded-xl pl-10 pr-4 py-3 border-2 border-gray-100 focus:border-green-500 focus:bg-white focus:outline-none transition-all"
-                            required
-                          />
-                        </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                        <input
+                          type="email"
+                          name="email"
+                          value={formData.email}
+                          onChange={handleChange}
+                          placeholder="Enter your email"
+                          className="w-full bg-gray-50 rounded-xl pl-10 pr-4 py-3 border-2 border-gray-100 focus:border-green-500 focus:bg-white focus:outline-none transition-all"
+                          required
+                        />
                       </div>
-                    ) : (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                        <div className="relative">
-                          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                          <input
-                            type="tel"
-                            name="phone"
-                            value={formData.phone}
-                            onChange={handleChange}
-                            placeholder="+91 9876543210"
-                            className="w-full bg-gray-50 rounded-xl pl-10 pr-4 py-3 border-2 border-gray-100 focus:border-green-500 focus:bg-white focus:outline-none transition-all"
-                            required
-                          />
-                        </div>
-                      </div>
-                    )}
+                    </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
@@ -563,16 +520,14 @@ const Login = () => {
                       </div>
                     </div>
 
-                    {loginMethod === 'email' && (
-                      <div className="text-right">
-                        <Link
-                          to="/login/forgot-password"
-                          className="text-sm text-green-600 hover:text-green-700 font-medium"
-                        >
-                          Forgot password?
-                        </Link>
-                      </div>
-                    )}
+                    <div className="text-right">
+                      <Link
+                        to="/login/forgot-password"
+                        className="text-sm text-green-600 hover:text-green-700 font-medium"
+                      >
+                        Forgot password?
+                      </Link>
+                    </div>
 
                     <motion.button
                       whileHover={{ scale: 1.02 }}

@@ -44,10 +44,10 @@ def _monthly_charges(flat: dict) -> float:
 
 def _carry_to_pending(flat: dict, row: dict | None) -> float:
     """
-    Extra amount to add to flat.pending after closing the month, matching the UI idea:
-    - no row: carry monthly+other (arrears already in pending).
+    Unpaid amount from the closed month to add to flat.pending_maintenance.
+    - no row: carry this month's charges (monthly + other).
     - paid row: 0
-    - pending row: amount minus paid; if the row amount is full (includes arrears), avoid double-counting p0.
+    - pending row: unpaid portion of this month only; if row amount includes old balance, do not carry it again.
     """
     p0 = max(0, float(flat.get("pending_maintenance") or 0))
     m = max(0, _monthly_charges(flat))
@@ -58,20 +58,72 @@ def _carry_to_pending(flat: dict, row: dict | None) -> float:
     if st == "paid":
         return 0.0
 
-    cap = p0 + m
+    paid = max(0, float(row.get("paid_amount") or 0))
     raw = float(row.get("amount") or 0)
     if raw == 0 or raw != raw:  # NaN
-        raw = cap
-    paid = max(0, float(row.get("paid_amount") or 0))
+        raw = m
+
+    unpaid_total = max(0, raw - paid)
     if raw <= m + 0.01:
-        return round(max(0, raw - paid), 2)
-    return round(max(0, raw - paid - p0), 2)
+        return round(unpaid_total, 2)
+
+    # Row total can include old balance already stored in pending_maintenance.
+    return round(max(0, min(m, unpaid_total - p0)), 2)
 
 
 class RolloverIn(BaseModel):
     apartment_id: str = Field(..., description="Apartment UUID")
     close_year: int = Field(..., ge=2000, le=2200)
     close_month: int = Field(..., ge=1, le=12)
+
+
+async def _month_already_closed(sb: Any, apartment_id: str, close_year: int, close_month: int) -> bool:
+    try:
+        rows = await sb.get(
+            "maintenance_month_closures",
+            params={
+                "apartment_id": f"eq.{apartment_id}",
+                "close_year": f"eq.{close_year}",
+                "close_month": f"eq.{close_month}",
+                "select": "apartment_id",
+                "limit": 1,
+            },
+        )
+        return bool(rows)
+    except Exception:
+        return False
+
+
+async def _claim_month_close(sb: Any, apartment_id: str, close_year: int, close_month: int) -> bool:
+    """Return True if this request claimed the month; False if another close already ran."""
+    try:
+        await sb.post(
+            "maintenance_month_closures",
+            json={
+                "apartment_id": apartment_id,
+                "close_year": close_year,
+                "close_month": close_month,
+            },
+        )
+        return True
+    except Exception as exc:
+        # PostgREST returns 409 on primary-key conflict when the month was already closed.
+        if getattr(getattr(exc, "response", None), "status_code", None) == 409:
+            return False
+        if await _month_already_closed(sb, apartment_id, close_year, close_month):
+            return False
+        raise
+
+
+async def _release_month_close(sb: Any, apartment_id: str, close_year: int, close_month: int) -> None:
+    await sb.delete(
+        "maintenance_month_closures",
+        params={
+            "apartment_id": f"eq.{apartment_id}",
+            "close_year": f"eq.{close_year}",
+            "close_month": f"eq.{close_month}",
+        },
+    )
 
 
 async def _run_rollover(body: RolloverIn) -> dict[str, Any]:
@@ -85,6 +137,29 @@ async def _run_rollover(body: RolloverIn) -> dict[str, Any]:
     if not apt:
         raise HTTPException(status_code=404, detail="Apartment not found")
 
+    if await _month_already_closed(sb, body.apartment_id, body.close_year, body.close_month):
+        return {
+            "ok": True,
+            "already_closed": True,
+            "apartment_id": body.apartment_id,
+            "flats_updated": 0,
+            "rows_deleted": 0,
+            "close_year": body.close_year,
+            "close_month": body.close_month,
+        }
+
+    claimed = await _claim_month_close(sb, body.apartment_id, body.close_year, body.close_month)
+    if not claimed:
+        return {
+            "ok": True,
+            "already_closed": True,
+            "apartment_id": body.apartment_id,
+            "flats_updated": 0,
+            "rows_deleted": 0,
+            "close_year": body.close_year,
+            "close_month": body.close_month,
+        }
+
     flats = await sb.get(
         "flats",
         params={
@@ -96,43 +171,47 @@ async def _run_rollover(body: RolloverIn) -> dict[str, Any]:
     if not flat_ids:
         return {"ok": True, "apartment_id": body.apartment_id, "flats_updated": 0, "rows_deleted": 0}
 
-    rows = await sb.get(
-        "maintenance",
-        params={
-            "apartment_id": f"eq.{body.apartment_id}",
-            "year": f"eq.{body.close_year}",
-            "month": f"eq.{body.close_month}",
-            "select": "*",
-        },
-    )
-    by_flat = {r["flat_id"]: r for r in (rows or []) if r.get("flat_id")}
+    try:
+        rows = await sb.get(
+            "maintenance",
+            params={
+                "apartment_id": f"eq.{body.apartment_id}",
+                "year": f"eq.{body.close_year}",
+                "month": f"eq.{body.close_month}",
+                "select": "*",
+            },
+        )
+        by_flat = {r["flat_id"]: r for r in (rows or []) if r.get("flat_id")}
 
-    updated = 0
-    for flat in flats or []:
-        fid = flat["id"]
-        p0 = max(0, float(flat.get("pending_maintenance") or 0))
-        carry = _carry_to_pending(flat, by_flat.get(fid))
-        new_p = round(p0 + carry, 2)
-        if new_p != p0:
-            await sb.patch("flats", params={"id": f"eq.{fid}"}, json={"pending_maintenance": new_p})
-            updated += 1
+        updated = 0
+        for flat in flats or []:
+            fid = flat["id"]
+            p0 = max(0, float(flat.get("pending_maintenance") or 0))
+            carry = _carry_to_pending(flat, by_flat.get(fid))
+            new_p = round(p0 + carry, 2)
+            if new_p != p0:
+                await sb.patch("flats", params={"id": f"eq.{fid}"}, json={"pending_maintenance": new_p})
+                updated += 1
 
-    deleted = 0
-    for r in rows or []:
-        rid = r.get("id")
-        if not rid:
-            continue
-        await sb.delete("maintenance", params={"id": f"eq.{rid}"})
-        deleted += 1
+        deleted = 0
+        for r in rows or []:
+            rid = r.get("id")
+            if not rid:
+                continue
+            await sb.delete("maintenance", params={"id": f"eq.{rid}"})
+            deleted += 1
 
-    return {
-        "ok": True,
-        "apartment_id": body.apartment_id,
-        "flats_updated": updated,
-        "rows_deleted": deleted,
-        "close_year": body.close_year,
-        "close_month": body.close_month,
-    }
+        return {
+            "ok": True,
+            "apartment_id": body.apartment_id,
+            "flats_updated": updated,
+            "rows_deleted": deleted,
+            "close_year": body.close_year,
+            "close_month": body.close_month,
+        }
+    except Exception:
+        await _release_month_close(sb, body.apartment_id, body.close_year, body.close_month)
+        raise
 
 
 @router.post("/rollover")

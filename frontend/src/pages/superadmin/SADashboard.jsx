@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, CreditCard, Users, IndianRupee } from 'lucide-react';
+import { Building2, CreditCard, Users, IndianRupee, TrendingUp } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, formatCurrency } from '../../lib/supabaseClient';
 import {
@@ -9,10 +9,16 @@ import {
   isFreeClient,
   monthlyRevenueChartData,
   totalPlatformRevenue,
+  availableYears,
+  buildPeriodRevenueSummary,
+  newClientsForMonth,
+  newClientsForYear,
 } from '../../lib/superadminMetrics';
 import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
 import SupportChatPanel from '../../components/SupportChatPanel';
+import SuperAdminPeriodFilter from '../../components/superadmin/SuperAdminPeriodFilter';
+import { SuperAdminRevenueBarChart } from '../../components/superadmin/SuperAdminBarChart';
 import toast from 'react-hot-toast';
 
 function DonutChart({ segments }) {
@@ -54,24 +60,6 @@ function DonutChart({ segments }) {
   );
 }
 
-function RevenueBars({ data, max }) {
-  const m = max || Math.max(...data.map((d) => d.value), 1);
-  return (
-    <div className="flex items-end justify-between gap-1 h-48 pt-6 border-b border-gray-200">
-      {data.map((d) => (
-        <div key={d.label} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-          <div
-            className="w-full max-w-[28px] rounded-t bg-blue-500/90 mx-auto transition-all"
-            style={{ height: `${Math.max(4, (d.value / m) * 100)}%` }}
-            title={`${d.label}: ${formatCurrency(d.value)}`}
-          />
-          <span className="text-[10px] text-gray-500 truncate w-full text-center">{d.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 const SADashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -80,9 +68,10 @@ const SADashboard = () => {
   const [chatApartmentId, setChatApartmentId] = useState('');
   const [chatApartmentOptions, setChatApartmentOptions] = useState([]);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState('all');
 
   const { userProfile } = useAuth();
-  const year = new Date().getFullYear();
 
   useEffect(() => {
     const load = async () => {
@@ -105,6 +94,17 @@ const SADashboard = () => {
     };
     load();
   }, []);
+
+  const yearOptions = useMemo(
+    () => availableYears(payments, apartments),
+    [payments, apartments],
+  );
+
+  useEffect(() => {
+    if (yearOptions.length && !yearOptions.includes(selectedYear)) {
+      setSelectedYear(yearOptions[0]);
+    }
+  }, [yearOptions, selectedYear]);
 
   /** Deep-link from bell: ?chatApartment=<uuid> */
   useEffect(() => {
@@ -168,9 +168,19 @@ const SADashboard = () => {
     const total = apartments.length;
     const paid = apartments.filter(isPaidPlan).length;
     const free = apartments.filter(isFreeClient).length;
-    const totalRevenue = totalPlatformRevenue(payments, apartments);
-    return { total, paid, free, totalRevenue };
-  }, [apartments, payments]);
+    const allTimeRevenue = totalPlatformRevenue(payments, apartments);
+    const period = buildPeriodRevenueSummary({
+      payments,
+      year: selectedYear,
+      monthFilter: selectedMonth,
+      apartments,
+    });
+    const newClients = selectedMonth === 'all'
+      ? newClientsForYear(apartments, selectedYear)
+      : newClientsForMonth(apartments, selectedYear, Number(selectedMonth));
+
+    return { total, paid, free, allTimeRevenue, period, newClients };
+  }, [apartments, payments, selectedYear, selectedMonth]);
 
   const donutSegments = useMemo(() => {
     let free = 0;
@@ -186,10 +196,18 @@ const SADashboard = () => {
   }, [apartments]);
 
   const revenueBars = useMemo(
-    () => monthlyRevenueChartData(payments, year, apartments),
-    [payments, year, apartments],
+    () => monthlyRevenueChartData(payments, selectedYear),
+    [payments, selectedYear],
   );
   const barMax = useMemo(() => Math.max(...revenueBars.map((d) => d.value), 1), [revenueBars]);
+  const highlightIndex = selectedMonth === 'all' ? null : Number(selectedMonth);
+
+  const revenueCardTitle = metrics.period.hasSingleMonth
+    ? `Monthly Revenue (${metrics.period.monthLabel} ${selectedYear})`
+    : `Year Revenue (${selectedYear})`;
+  const revenueCardValue = metrics.period.hasSingleMonth
+    ? metrics.period.monthTotal
+    : metrics.period.yearTotal;
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -210,7 +228,15 @@ const SADashboard = () => {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+              <SuperAdminPeriodFilter
+                years={yearOptions}
+                selectedYear={selectedYear}
+                onYearChange={setSelectedYear}
+                selectedMonth={selectedMonth}
+                onMonthChange={setSelectedMonth}
+              />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
                 <div className="rounded-2xl bg-blue-600 text-white p-6 shadow-sm">
                   <div className="flex items-start justify-between">
                     <div>
@@ -245,11 +271,27 @@ const SADashboard = () => {
                 <div className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-gray-500 text-sm">Total Revenue</p>
-                      <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(metrics.totalRevenue)}</p>
+                      <p className="text-gray-500 text-sm">Total Revenue (All Time)</p>
+                      <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(metrics.allTimeRevenue)}</p>
                     </div>
                     <div className="p-2 rounded-xl bg-amber-50 text-amber-700">
                       <IndianRupee size={24} />
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-gray-500 text-sm">{revenueCardTitle}</p>
+                      <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(revenueCardValue)}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {metrics.period.hasSingleMonth
+                          ? `Year ${selectedYear}: ${formatCurrency(metrics.period.yearTotal)}`
+                          : `All time: ${formatCurrency(metrics.allTimeRevenue)}`}
+                      </p>
+                    </div>
+                    <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+                      <TrendingUp size={24} />
                     </div>
                   </div>
                 </div>
@@ -262,8 +304,26 @@ const SADashboard = () => {
                     <DonutChart segments={donutSegments} />
                   </div>
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Revenue ({year})</h3>
-                    <RevenueBars data={revenueBars} max={barMax} />
+                    <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          Monthly Revenue ({selectedYear})
+                        </h3>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {selectedMonth === 'all'
+                            ? `Year total: ${formatCurrency(metrics.period.yearTotal)} · All time: ${formatCurrency(metrics.allTimeRevenue)}`
+                            : `${metrics.period.monthLabel} ${selectedYear}: ${formatCurrency(metrics.period.monthTotal)} · Year: ${formatCurrency(metrics.period.yearTotal)}`}
+                        </p>
+                      </div>
+                      <p className="text-sm text-gray-600">
+                        New clients: <span className="font-semibold text-gray-900">{metrics.newClients}</span>
+                      </p>
+                    </div>
+                    <SuperAdminRevenueBarChart
+                      data={revenueBars}
+                      max={barMax}
+                      highlightIndex={highlightIndex}
+                    />
                   </div>
                 </div>
                 <div className="w-full lg:w-1/2 min-w-0 flex flex-col">

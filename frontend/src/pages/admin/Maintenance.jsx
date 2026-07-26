@@ -14,7 +14,8 @@ import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
 import { maintenanceApi } from '../../lib/apiClient';
 import { autoClosePriorMonths } from '../../lib/maintenanceAutoRollover';
 import { downloadTextFile, downloadPdf } from '../../lib/downloadFile';
-import { dueFromFlat } from '../../utils/maintenancePending';
+import { buildMaintenanceRowView } from '../../utils/maintenanceDue';
+import { getMaintenanceMenuLabel } from '../../utils/apartmentLabels';
 
 const Maintenance = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -33,6 +34,7 @@ const Maintenance = () => {
   });
 
   const { apartment, userProfile, profileLoaded } = useAuth();
+  const maintenanceMenuLabel = getMaintenanceMenuLabel(apartment);
   const activeApartmentId = useAdminActiveApartment();
 
   useEffect(() => {
@@ -109,6 +111,23 @@ const Maintenance = () => {
 
       if (error) throw error;
 
+      let closedMonthKeys = new Set();
+      const { data: closedMonths, error: closedErr } = await supabase
+        .from('maintenance_month_closures')
+        .select('close_year, close_month')
+        .eq('apartment_id', activeApartmentId);
+      if (!closedErr && closedMonths) {
+        closedMonthKeys = new Set(
+          closedMonths.map((row) => `${Number(row.close_year)}-${Number(row.close_month)}`)
+        );
+      }
+
+      const periodContext = {
+        selectedYear,
+        selectedMonth,
+        closedMonthKeys,
+      };
+
       // Create a map of existing records
       const existingMap = new Map(
         maintenanceData?.map(m => [m.flat_id, m]) || []
@@ -118,15 +137,12 @@ const Maintenance = () => {
       const combinedData = list.map((flat) => {
         const f = normalizeFlatForRow(flat);
         const existing = existingMap.get(flat.id);
-        const baseDue = dueFromFlat(flat);
+        const view = buildMaintenanceRowView(flat, existing, periodContext);
 
         if (existing) {
-          const raw = Number(existing.amount ?? 0);
-          const amount =
-            existing.status === 'pending' && (raw === 0 || Number.isNaN(raw)) ? baseDue : raw;
           return {
             ...existing,
-            amount,
+            ...view,
             flats: { ...f, ...(existing.flats || {}) },
           };
         }
@@ -137,10 +153,7 @@ const Maintenance = () => {
           flat_id: flat.id,
           month: selectedMonth,
           year: selectedYear,
-          amount: baseDue,
-          status: baseDue > 0 ? 'pending' : 'paid',
-          paid_date: null,
-          paid_amount: 0,
+          ...view,
           flats: f,
         };
       });
@@ -152,7 +165,7 @@ const Maintenance = () => {
       const pendingCount = combinedData.filter(m => m.status === 'pending').length;
       const pendingAmount = combinedData
         .filter(m => m.status === 'pending')
-        .reduce((sum, m) => sum + Number(m.amount || 0), 0);
+        .reduce((sum, m) => sum + Number(m.total || 0), 0);
 
       setStats({
         totalFlats: list.length,
@@ -298,27 +311,24 @@ const Maintenance = () => {
     let sumArrears = 0;
     let sumOther = 0;
     let sumTotal = 0;
-    let sumMonthAmt = 0;
 
     const body = pendingOnly.map((r) => {
       const f = r.flats || {};
-      const m = Number(f.monthly_maintenance ?? 0);
-      const p = Number(f.pending_maintenance ?? 0);
+      const monthly = Number(f.monthly_maintenance ?? 0);
       const o = Number(f.other_maintenance ?? 0);
-      const tot = m + p + o;
-      const rec = Number(r.amount ?? 0);
+      const p = Number(r.oldBalance ?? f.pending_maintenance ?? 0);
+      const tot = Number(r.total ?? monthly + o + p);
       const status = r.status === 'paid' ? 'Paid' : r.status === 'pending' ? 'Pending' : String(r.status ?? '—');
 
-      sumMonthly += m;
+      sumMonthly += monthly;
       sumArrears += p;
       sumOther += o;
       sumTotal += tot;
-      sumMonthAmt += rec;
 
       return [
         String(f.flat_number ?? '—'),
         String(f.resident_name || f.owner_name || '—'),
-        inrForPdf(m),
+        inrForPdf(monthly),
         inrForPdf(p),
         inrForPdf(o),
         inrForPdf(tot),
@@ -411,12 +421,17 @@ const Maintenance = () => {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} role={userProfile?.role} />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar onMenuClick={() => setSidebarOpen(true)} title="Maintenance" />
+        <TopBar onMenuClick={() => setSidebarOpen(true)} title={maintenanceMenuLabel} />
         
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">Maintenance</h1>
-            <p className="text-gray-500 mt-1">Track monthly maintenance and payments per flat</p>
+            <h1 className="text-2xl font-bold text-gray-900">{maintenanceMenuLabel}</h1>
+            <p className="text-gray-500 mt-1">
+              Track monthly maintenance and payments per flat ·{' '}
+              <span className="font-medium text-gray-700">
+                {getMonthName(selectedMonth)} {selectedYear}
+              </span>
+            </p>
           </div>
 
           {/* Filters */}
@@ -534,7 +549,9 @@ const Maintenance = () => {
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Owner</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Phone</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Status</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Amount</th>
+                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-900">Current month</th>
+                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-900">Old balance</th>
+                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-900">Total</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Paid Date</th>
                     </tr>
                   </thead>
@@ -564,14 +581,20 @@ const Maintenance = () => {
                             {item.status === 'paid' ? 'Paid' : 'Pending'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-sm">
+                        <td className="py-3 px-4 text-sm text-right text-gray-700 tabular-nums">
+                          {formatCurrency(item.currentMonth ?? 0)}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-right text-amber-800 tabular-nums">
+                          {formatCurrency(item.oldBalance ?? 0)}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-right">
                           {item.status === 'paid' ? (
-                            <span className="font-semibold text-green-600">
+                            <span className="font-semibold text-green-600 tabular-nums">
                               {formatCurrency(item.paid_amount || item.amount)}
                             </span>
                           ) : (
-                            <span className="font-semibold text-amber-800">
-                              {formatCurrency(item.amount ?? 0)}
+                            <span className="font-semibold text-amber-800 tabular-nums">
+                              {formatCurrency(item.total ?? item.amount ?? 0)}
                             </span>
                           )}
                         </td>

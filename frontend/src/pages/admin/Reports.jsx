@@ -29,8 +29,10 @@ const toDataUrl = async (url) => {
 const Reports = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [selectedMonth, setSelectedMonth] = useState('all'); // all | 1-12
+  const [selectedMonth, setSelectedMonth] = useState('all'); // all | custom | 1-12
   const [selectedYear, setSelectedYear] = useState('all');   // all | YYYY
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
   const [searchIncome, setSearchIncome] = useState('');
   const [searchExpense, setSearchExpense] = useState('');
   const [expenseCategory, setExpenseCategory] = useState('all');
@@ -55,7 +57,23 @@ const Reports = () => {
     if (!activeApartmentId) return;
     fetchReportData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeApartmentId, selectedMonth, selectedYear]);
+  }, [activeApartmentId, selectedMonth, selectedYear, customFrom, customTo]);
+
+  const getPeriodLabel = () => {
+    if (selectedMonth === 'custom') {
+      if (customFrom && customTo) return `${customFrom} to ${customTo}`;
+      if (customFrom) return `From ${customFrom}`;
+      if (customTo) return `Until ${customTo}`;
+      return 'Custom range';
+    }
+    if (selectedMonth !== 'all' && selectedYear !== 'all') {
+      return `${getMonthName(parseInt(selectedMonth, 10))} ${selectedYear}`;
+    }
+    if (selectedYear !== 'all') return `Year ${selectedYear}`;
+    return 'All time';
+  };
+
+  const getExportFileSuffix = () => getPeriodLabel().replace(/\s+/g, '_').replace(/[^\w-]/g, '_');
 
   const fetchReportData = async () => {
     try {
@@ -73,18 +91,32 @@ const Reports = () => {
       const aptOpeningBook = Number(aptMeta?.opening_balance ?? 0);
 
       // Date range
-      const yearNum = selectedYear === 'all' ? null : parseInt(selectedYear);
-      const monthNum = selectedMonth === 'all' ? null : parseInt(selectedMonth);
-      const startDate = (yearNum && monthNum)
-        ? `${yearNum}-${String(monthNum).padStart(2, '0')}-01`
-        : yearNum
-          ? `${yearNum}-01-01`
-          : null;
-      const endDate = (yearNum && monthNum)
-        ? (monthNum === 12 ? `${yearNum + 1}-01-01` : `${yearNum}-${String(monthNum + 1).padStart(2, '0')}-01`)
-        : yearNum
-          ? `${yearNum + 1}-01-01`
-          : null;
+      let startDate = null;
+      let endDate = null;
+
+      if (selectedMonth === 'custom') {
+        if (customFrom) startDate = customFrom;
+        if (customTo) {
+          const d = new Date(customTo);
+          if (!Number.isNaN(d.getTime())) {
+            d.setDate(d.getDate() + 1);
+            endDate = d.toISOString().slice(0, 10);
+          }
+        }
+      } else {
+        const yearNum = selectedYear === 'all' ? null : parseInt(selectedYear, 10);
+        const monthNum = selectedMonth === 'all' ? null : parseInt(selectedMonth, 10);
+        if (yearNum && monthNum) {
+          startDate = `${yearNum}-${String(monthNum).padStart(2, '0')}-01`;
+          endDate =
+            monthNum === 12
+              ? `${yearNum + 1}-01-01`
+              : `${yearNum}-${String(monthNum + 1).padStart(2, '0')}-01`;
+        } else if (yearNum) {
+          startDate = `${yearNum}-01-01`;
+          endDate = `${yearNum + 1}-01-01`;
+        }
+      }
 
       // Income
       let incomeQuery = supabase
@@ -182,9 +214,7 @@ const Reports = () => {
       ['', '', '', '', '', '', 'Total:', stats.totalIncome]
     ], { origin: -1 });
 
-    const label = selectedMonth === 'all' || selectedYear === 'all'
-      ? `All_${selectedYear === 'all' ? 'Years' : selectedYear}`
-      : `${getMonthName(parseInt(selectedMonth))}_${selectedYear}`;
+    const label = getExportFileSuffix();
     await downloadXlsx(wb, `Income_${label}.xlsx`);
     toast.success('Income Excel exported successfully');
   };
@@ -213,9 +243,7 @@ const Reports = () => {
       ['', '', '', '', '', 'Total:', stats.totalExpenses]
     ], { origin: -1 });
 
-    const label = selectedMonth === 'all' || selectedYear === 'all'
-      ? `All_${selectedYear === 'all' ? 'Years' : selectedYear}`
-      : `${getMonthName(parseInt(selectedMonth))}_${selectedYear}`;
+    const label = getExportFileSuffix();
     await downloadXlsx(wb, `Expenses_${label}.xlsx`);
     toast.success('Expense Excel exported successfully');
   };
@@ -236,12 +264,7 @@ const Reports = () => {
     doc.setFontSize(10);
     doc.setTextColor(100);
     doc.text(apartment?.name || '', 14, 28);
-    const periodLabel =
-      selectedMonth !== 'all' && selectedYear !== 'all'
-        ? `${getMonthName(parseInt(selectedMonth))} ${selectedYear}`
-        : selectedYear !== 'all'
-          ? `Year ${selectedYear}`
-          : 'All Time';
+    const periodLabel = getPeriodLabel();
     doc.text(`Financial Report - ${periodLabel}`, 14, 34);
     doc.text(`Generated on ${formatDate(new Date())}`, 14, 40);
 
@@ -340,12 +363,13 @@ const Reports = () => {
       );
     }
 
-    await downloadPdf(doc, `Financial_Report_${periodLabel.replace(/\s+/g, '_')}.pdf`);
+    await downloadPdf(doc, `Financial_Report_${getExportFileSuffix()}.pdf`);
     toast.success('PDF exported successfully');
   };
 
   const months = [
     { value: 'all', label: 'All Months' },
+    { value: 'custom', label: 'Custom' },
     ...Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: getMonthName(i + 1) })),
   ];
 
@@ -428,15 +452,37 @@ const Reports = () => {
                 ))}
               </select>
 
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
-                className="bg-white border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500"
-              >
-                {years.map(year => (
-                  <option key={year.value} value={year.value}>{year.label}</option>
-                ))}
-              </select>
+              {selectedMonth !== 'custom' && (
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                  className="bg-white border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  {years.map(year => (
+                    <option key={year.value} value={year.value}>{year.label}</option>
+                  ))}
+                </select>
+              )}
+
+              {selectedMonth === 'custom' && (
+                <>
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    className="bg-white border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    aria-label="From date"
+                  />
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    min={customFrom || undefined}
+                    className="bg-white border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    aria-label="To date"
+                  />
+                </>
+              )}
             </div>
 
             <div className="flex gap-2 sm:ml-auto">

@@ -11,6 +11,7 @@ import EmptyState from '../../components/EmptyState';
 import toast from 'react-hot-toast';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
+import { getFlatsMenuLabel } from '../../utils/apartmentLabels';
 
 const Flats = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -36,6 +37,7 @@ const Flats = () => {
   });
 
   const { apartment, userProfile, profileLoaded } = useAuth();
+  const flatsMenuLabel = getFlatsMenuLabel(apartment);
   const activeApartmentId = useAdminActiveApartment();
 
   useEffect(() => {
@@ -211,11 +213,11 @@ const Flats = () => {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} role={userProfile?.role} />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar onMenuClick={() => setSidebarOpen(true)} title="Flats" />
+        <TopBar onMenuClick={() => setSidebarOpen(true)} title={flatsMenuLabel} />
         
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">Flats</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{flatsMenuLabel}</h1>
             <p className="text-gray-500 mt-1">
               Manage flats for the selected apartment
               <span className="text-gray-700 font-semibold"> · {flats.length} total flats</span>

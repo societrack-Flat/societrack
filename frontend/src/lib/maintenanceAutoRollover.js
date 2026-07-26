@@ -1,47 +1,64 @@
 import { supabase } from './supabaseClient';
 import { maintenanceApi } from './apiClient';
+import { priorMonthsNeedingClose } from '../utils/maintenanceDue';
 
-function monthIndex(year, month) {
-  return year * 12 + month;
+const closeInFlight = new Map();
+
+function closeKey(apartmentId, year, month) {
+  return `${apartmentId}:${year}-${month}`;
+}
+
+async function runRolloverOnce(apartmentId, year, month) {
+  const key = closeKey(apartmentId, year, month);
+  if (closeInFlight.has(key)) {
+    await closeInFlight.get(key);
+    return;
+  }
+
+  const job = maintenanceApi
+    .rollover({
+      apartment_id: apartmentId,
+      close_year: year,
+      close_month: month,
+    })
+    .finally(() => {
+      closeInFlight.delete(key);
+    });
+
+  closeInFlight.set(key, job);
+  await job;
 }
 
 /**
- * Move unpaid maintenance from months before the selected period into flats.pending_maintenance.
- * Idempotent: after rollover, no rows remain for those months.
+ * Close every prior month (before the selected period) that is not yet recorded as closed.
+ * Uses apartment created date + maintenance history — not a hardcoded single month.
  */
 export async function autoClosePriorMonths(apartmentId, targetYear, targetMonth) {
   if (!apartmentId) return;
 
-  const target = monthIndex(targetYear, targetMonth);
+  const [
+    { data: maintenanceMonths, error: maintErr },
+    { data: closedMonths, error: closedErr },
+    { data: apartment, error: aptErr },
+  ] = await Promise.all([
+    supabase.from('maintenance').select('year, month').eq('apartment_id', apartmentId),
+    supabase.from('maintenance_month_closures').select('close_year, close_month').eq('apartment_id', apartmentId),
+    supabase.from('apartments').select('created_at').eq('id', apartmentId).maybeSingle(),
+  ]);
 
-  const { data, error } = await supabase
-    .from('maintenance')
-    .select('year, month')
-    .eq('apartment_id', apartmentId);
+  if (maintErr) throw maintErr;
+  if (aptErr) throw aptErr;
+  if (closedErr && closedErr.code !== '42P01') throw closedErr;
 
-  if (error) throw error;
+  const monthsToClose = priorMonthsNeedingClose({
+    targetYear,
+    targetMonth,
+    maintenanceMonths,
+    closedMonths,
+    apartmentCreatedAt: apartment?.created_at,
+  });
 
-  const seen = new Set();
-  const prior = [];
-  for (const row of data || []) {
-    const y = Number(row.year);
-    const m = Number(row.month);
-    if (!y || !m) continue;
-    const key = `${y}-${m}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (monthIndex(y, m) < target) {
-      prior.push({ year: y, month: m });
-    }
-  }
-
-  prior.sort((a, b) => monthIndex(a.year, a.month) - monthIndex(b.year, b.month));
-
-  for (const { year, month } of prior) {
-    await maintenanceApi.rollover({
-      apartment_id: apartmentId,
-      close_year: year,
-      close_month: month,
-    });
+  for (const { year, month } of monthsToClose) {
+    await runRolloverOnce(apartmentId, year, month);
   }
 }

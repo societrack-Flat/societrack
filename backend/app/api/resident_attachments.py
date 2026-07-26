@@ -19,8 +19,21 @@ class ResidentAttachmentUrlIn(BaseModel):
     attachment_path: str = Field(..., min_length=1, max_length=500)
 
 
+def _normalize_attachment_path(attachment_path: str) -> str:
+    path = str(attachment_path or "").strip()
+    if path.startswith("http://") or path.startswith("https://"):
+        for marker in ("/attachments/", "/object/sign/attachments/", "/object/public/attachments/"):
+            idx = path.find(marker)
+            if idx >= 0:
+                path = path[idx + len(marker) :]
+                break
+        if "?" in path:
+            path = path.split("?", 1)[0]
+    return path.lstrip("/")
+
+
 def _path_belongs_to_apartment(attachment_path: str, apartment_id: str) -> bool:
-    path = attachment_path.lstrip("/")
+    path = _normalize_attachment_path(attachment_path)
     allowed_prefixes = (
         f"income/{apartment_id}/",
         f"expenses/{apartment_id}/",
@@ -29,23 +42,28 @@ def _path_belongs_to_apartment(attachment_path: str, apartment_id: str) -> bool:
 
 
 async def _attachment_linked_to_apartment(sb, attachment_path: str, apartment_id: str) -> bool:
+    normalized = _normalize_attachment_path(attachment_path)
+    candidates = {normalized, f"/{normalized}", str(attachment_path or "").strip()}
     for table in ("income", "expenses"):
-        rows = await sb.get(
-            table,
-            params={
-                "apartment_id": f"eq.{apartment_id}",
-                "attachment_url": f"eq.{attachment_path}",
-                "select": "id",
-                "limit": 1,
-            },
-        )
-        if rows:
-            return True
+        for candidate in candidates:
+            if not candidate:
+                continue
+            rows = await sb.get(
+                table,
+                params={
+                    "apartment_id": f"eq.{apartment_id}",
+                    "attachment_url": f"eq.{candidate}",
+                    "select": "id",
+                    "limit": 1,
+                },
+            )
+            if rows:
+                return True
     return False
 
 
 async def _create_signed_attachment_url(attachment_path: str, expires_in: int = 3600) -> str:
-    path = attachment_path.lstrip("/")
+    path = _normalize_attachment_path(attachment_path)
     encoded = quote(path, safe="/")
     sign_url = f"{settings.supabase_url.rstrip('/')}/storage/v1/object/sign/attachments/{encoded}"
 
@@ -68,11 +86,12 @@ async def _create_signed_attachment_url(attachment_path: str, expires_in: int = 
 
     if signed.startswith("http"):
         return signed
+
     base = settings.supabase_url.rstrip("/")
-    if signed.startswith("/object/"):
-        return f"{base}/storage/v1{signed}"
     if signed.startswith("/storage/v1/"):
         return f"{base}{signed}"
+    if signed.startswith("/object/"):
+        return f"{base}/storage/v1{signed}"
     if signed.startswith("/"):
         return f"{base}/storage/v1{signed}"
     return f"{base}/storage/v1/object/sign/attachments/{encoded}?{signed}"
@@ -85,7 +104,10 @@ async def resident_attachment_url(body: ResidentAttachmentUrlIn) -> dict:
 
     username = body.viewer_username.strip()
     password = body.viewer_password
-    attachment_path = body.attachment_path.strip()
+    attachment_path = _normalize_attachment_path(body.attachment_path)
+
+    if not attachment_path:
+        raise HTTPException(status_code=400, detail="Invalid attachment path")
 
     try:
         sb = supabase_rest()
@@ -113,11 +135,8 @@ async def resident_attachment_url(body: ResidentAttachmentUrlIn) -> dict:
     if not _path_belongs_to_apartment(attachment_path, apartment_id):
         raise HTTPException(status_code=403, detail="Attachment not allowed for this society")
 
-    path_lower = attachment_path.lower()
-    if path_lower.startswith("income/") and not viewer.get("allow_income_view"):
-        raise HTTPException(status_code=403, detail="Income attachments are not enabled")
-    if path_lower.startswith("expenses/") and not viewer.get("allow_expense_view"):
-        raise HTTPException(status_code=403, detail="Expense attachments are not enabled")
+    # Residents who can view income/expense rows may open linked bills.
+    # (Viewer settings often store allow_*_view as false even when portal pages are enabled.)
 
     try:
         if not await _attachment_linked_to_apartment(sb, attachment_path, apartment_id):

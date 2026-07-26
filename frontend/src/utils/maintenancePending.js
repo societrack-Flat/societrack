@@ -1,39 +1,29 @@
-/** Same formula as Maintenance tab “due” per flat. */
-export function dueFromFlat(flat) {
-  return (
-    Number(flat?.monthly_maintenance ?? 0) +
-    Number(flat?.pending_maintenance ?? 0) +
-    Number(flat?.other_maintenance ?? 0)
-  );
-}
+import {
+  buildMaintenanceRowView,
+  totalOutstanding,
+} from './maintenanceDue';
+
+export { dueFromFlat, totalOutstanding } from './maintenanceDue';
 
 /**
- * Mirrors `Maintenance.jsx` combined rows for one calendar month:
- * pending total includes DB rows + synthetic pending when no row exists.
+ * Mirrors Maintenance tab combined rows for one calendar month.
  */
 export function pendingTotalForMonth(flats, maintenanceRows, month, year) {
   const rowsForMonth = (maintenanceRows || []).filter((m) => m.month === month && m.year === year);
   const existingMap = new Map(rowsForMonth.map((m) => [m.flat_id, m]));
   let sum = 0;
+
   for (const flat of flats || []) {
     const existing = existingMap.get(flat.id);
-    const baseDue = dueFromFlat(flat);
-    if (existing) {
-      const raw = Number(existing.amount ?? 0);
-      const amount =
-        existing.status === 'pending' && (raw === 0 || Number.isNaN(raw)) ? baseDue : raw;
-      if (existing.status === 'pending') sum += Number(amount || 0);
-    } else if (baseDue > 0) {
-      sum += baseDue;
-    }
+    const view = buildMaintenanceRowView(flat, existing);
+    if (view.status === 'pending') sum += view.total;
   }
+
   return sum;
 }
 
 /**
  * Dashboard “Pending maintenance” card: aligned with Maintenance tab logic.
- * - month / all: current calendar month (same view as Maintenance default).
- * - custom: sum of per-month pending for each month in the selected range.
  */
 export function pendingTotalForDashboardPeriod(flats, maintenanceRows, timeRange, customFrom, customTo) {
   const now = new Date();
