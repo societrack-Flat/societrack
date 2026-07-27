@@ -85,7 +85,6 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     loading,
     profileLoaded,
     isResident,
-    checkSubscription,
     bootstrapError,
     retryBootstrap,
     saManagedApartmentId,
@@ -169,23 +168,6 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     }
     if (userProfile.role === 'admin') return <Navigate to="/admin/dashboard" replace />;
     return <Navigate to="/login" replace />;
-  }
-
-  /* Admin with lapsed trial/subscription: read-only — dashboard, reports, account, subscribe only */
-  if (userProfile.role === 'admin' && !saManagedApartmentId) {
-    const sub = checkSubscription();
-    if (sub.adminAccess === 'read_only') {
-      const path = location.pathname;
-      const allowed =
-        path.startsWith('/admin/dashboard') ||
-        path.startsWith('/admin/reports') ||
-        path.startsWith('/admin/account') ||
-        path.startsWith('/subscribe') ||
-        path === '/pay-razorpay';
-      if (!allowed) {
-        return <Navigate to="/admin/dashboard" replace />;
-      }
-    }
   }
 
   console.log('[ProtectedRoute] rendering children');

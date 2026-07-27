@@ -1202,38 +1202,14 @@ export const AuthProvider = ({ children }) => {
 
     if (!apt) return defaultFull;
 
-    const planIsTrial =
-      apt?.plan_name === 'free_trial' ||
-      apt?.plan_name === 'free' ||
-      String(apt?.subscription_status || '').toLowerCase() === 'trial';
-
-    if (apt.trial_end_date && planIsTrial) {
-      const trialEnd = new Date(apt.trial_end_date);
-      trialEnd.setHours(0, 0, 0, 0);
-      const daysLeft = Math.ceil((trialEnd.getTime() - today.getTime()) / 86400000);
-      if (daysLeft < 0) {
-        return {
-          valid: false,
-          reason: 'expired',
-          status: 'trial',
-          daysLeft: 0,
-          adminAccess: 'read_only',
-          showSubscribeCta: true,
-        };
-      }
-      return {
-        valid: true,
-        reason: null,
-        status: 'trial',
-        daysLeft: Math.max(0, daysLeft),
-        adminAccess: 'full',
-        showSubscribeCta: daysLeft <= 2,
-      };
-    }
-
-    const paidStatus = String(apt?.subscription_status || '').toLowerCase() === 'active';
+    const subscriptionStatus = String(apt?.subscription_status || '').toLowerCase();
     const paidPlan = String(apt?.plan_name || '').toLowerCase();
-    const isPaidPlan = paidStatus && (paidPlan === 'societrack_pro' || ['basic', 'standard', 'premium'].includes(paidPlan));
+    const isPaidPlan =
+      subscriptionStatus === 'active' &&
+      (paidPlan === 'societrack_pro' ||
+        ['basic', 'standard', 'premium'].includes(paidPlan) ||
+        paidPlan === 'free_trial' ||
+        paidPlan === 'free');
     // Active Pro without an end date yet: treat as paid (e.g. row updated before end_date column sync).
     if (isPaidPlan && !apt.subscription_end_date) {
       return {
@@ -1263,6 +1239,35 @@ export const AuthProvider = ({ children }) => {
         valid: true,
         reason: null,
         status: 'active',
+        daysLeft: Math.max(0, daysLeft),
+        adminAccess: 'full',
+        showSubscribeCta: daysLeft <= 2,
+      };
+    }
+
+    const planIsTrial =
+      apt?.plan_name === 'free_trial' ||
+      apt?.plan_name === 'free' ||
+      subscriptionStatus === 'trial';
+
+    if (apt.trial_end_date && planIsTrial) {
+      const trialEnd = new Date(apt.trial_end_date);
+      trialEnd.setHours(0, 0, 0, 0);
+      const daysLeft = Math.ceil((trialEnd.getTime() - today.getTime()) / 86400000);
+      if (daysLeft < 0) {
+        return {
+          valid: false,
+          reason: 'expired',
+          status: 'trial',
+          daysLeft: 0,
+          adminAccess: 'read_only',
+          showSubscribeCta: true,
+        };
+      }
+      return {
+        valid: true,
+        reason: null,
+        status: 'trial',
         daysLeft: Math.max(0, daysLeft),
         adminAccess: 'full',
         showSubscribeCta: daysLeft <= 2,
