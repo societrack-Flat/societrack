@@ -41,6 +41,7 @@ import {
   flatSelectFieldLabel,
   selectFlatLabel,
   flatsTabReference,
+  totalMaintenanceCollectedLabel,
 } from '../../utils/apartmentLabels';
 
 /** Primary green — use consistently on admin dashboard (matches mock “Add Receipt”) */
