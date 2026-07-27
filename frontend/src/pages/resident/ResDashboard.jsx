@@ -18,6 +18,10 @@ import TopBar from '../../components/TopBar';
 import toast from 'react-hot-toast';
 import DashboardMonthlyBarChart from '../../components/DashboardMonthlyBarChart';
 import { pendingTotalForDashboardPeriod } from '../../utils/maintenancePending';
+import {
+  pendingMaintenanceLabel,
+  totalMaintenanceCollectedLabel,
+} from '../../utils/apartmentLabels';
 
 /** Match admin dashboard accent */
 const DASH_GREEN = '#22c55e';
@@ -490,7 +494,7 @@ const ResDashboard = () => {
                       <IndianRupee className="text-[#16a34a]" size={20} strokeWidth={2} />
                     </div>
                   </div>
-                  <p className="text-xs font-medium text-gray-500">Total maintenance collected</p>
+                  <p className="text-xs font-medium text-gray-500">{totalMaintenanceCollectedLabel(apartment)}</p>
                   <p className="text-lg font-bold text-gray-900 mt-1 tabular-nums">{formatCurrency(stats.maintenanceCollected)}</p>
                 </div>
                 <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -517,7 +521,7 @@ const ResDashboard = () => {
                       <Clock className="text-amber-600" size={20} />
                     </div>
                   </div>
-                  <p className="text-xs font-medium text-gray-500">Pending maintenance</p>
+                  <p className="text-xs font-medium text-gray-500">{pendingMaintenanceLabel(apartment)}</p>
                   <p className="text-lg font-bold text-gray-900 mt-1 tabular-nums">{formatCurrency(stats.totalFlatPendingMaintenance)}</p>
                 </div>
               </div>

@@ -29,6 +29,19 @@ import { CALENDAR_MONTH_OPTIONS, getMaintenanceYearOptions } from '../../utils/m
 import { dueFromFlat, pendingTotalForDashboardPeriod } from '../../utils/maintenancePending';
 import { autoClosePriorMonths } from '../../lib/maintenanceAutoRollover';
 import { applyMaintenanceIncomeAfterInsert } from '../../lib/applyMaintenanceIncome';
+import {
+  MAINTENANCE_CATEGORY_VALUE,
+  applyMaintenancePaymentToLabel,
+  formatCategoryLabel,
+  getMaintenanceMenuLabel,
+  maintenanceCategoryOption,
+  pendingMaintenanceLabel,
+  maintenanceTabReference,
+  selectFlatForMaintenanceToast,
+  flatSelectFieldLabel,
+  selectFlatLabel,
+  flatsTabReference,
+} from '../../utils/apartmentLabels';
 
 /** Primary green — use consistently on admin dashboard (matches mock “Add Receipt”) */
 const DASH_GREEN = '#22c55e';
@@ -195,6 +208,7 @@ const Dashboard = () => {
 
   const { apartment, userProfile, checkSubscription, profileLoaded } = useAuth();
   const activeApartmentId = useAdminActiveApartment();
+  const maintenanceLabel = getMaintenanceMenuLabel(apartment);
 
   useEffect(() => {
     if (activeApartmentId) {
@@ -439,7 +453,7 @@ const Dashboard = () => {
           kind: 'income',
           id: r.id,
           type: 'Income',
-          title: r.description || r.category || 'Income',
+          title: r.description || formatCategoryLabel(apartment, r.category) || 'Income',
           amount: Number(r.amount || 0),
           date: r.date,
           paymentMode: r.payment_mode || '-',
@@ -569,15 +583,15 @@ const Dashboard = () => {
       toast.error('Please select a category');
       return;
     }
-    const isMaint = receiptForm.category === 'Maintenance';
+    const isMaint = receiptForm.category === MAINTENANCE_CATEGORY_VALUE;
     const payTarget = receiptForm.maintenancePaymentTarget;
     const isMaintSync = isMaint && receiptForm.flat_id && (payTarget === 'current' || payTarget === 'arrears');
     if (isMaint && !receiptForm.flat_id) {
-      toast.error('Select a flat for maintenance payments');
+      toast.error(selectFlatForMaintenanceToast(apartment, maintenanceLabel));
       return;
     }
     if (isMaint && payTarget === 'current' && (!receiptForm.maintenanceYear || !receiptForm.maintenanceMonth)) {
-      toast.error('Select year and month for current maintenance');
+      toast.error(`Select year and month for current ${maintenanceLabel.toLowerCase()}`);
       return;
     }
     try {
@@ -627,7 +641,7 @@ const Dashboard = () => {
           console.error(syncErr);
           toast.error(
             syncErr?.message ||
-              'Receipt saved, but maintenance could not be updated. You can correct it from the Maintenance tab.'
+              `Receipt saved, but ${maintenanceLabel.toLowerCase()} could not be updated. You can correct it from the ${maintenanceTabReference(apartment)} tab.`
           );
         }
       }
@@ -847,7 +861,7 @@ const Dashboard = () => {
                       <IndianRupee className="text-[#16a34a]" size={20} strokeWidth={2} />
                     </div>
                   </div>
-                  <p className="text-xs font-medium text-gray-500">Total maintenance collected</p>
+                  <p className="text-xs font-medium text-gray-500">{totalMaintenanceCollectedLabel(apartment)}</p>
                   <p className="text-lg font-bold text-gray-900 mt-1 tabular-nums">{formatCurrency(stats.maintenanceCollected)}</p>
                 </div>
                 <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -874,7 +888,7 @@ const Dashboard = () => {
                       <Clock className="text-amber-600" size={20} />
                     </div>
                   </div>
-                  <p className="text-xs font-medium text-gray-500">Pending maintenance</p>
+                  <p className="text-xs font-medium text-gray-500">{pendingMaintenanceLabel(apartment)}</p>
                   <p className="text-lg font-bold text-gray-900 mt-1 tabular-nums">{formatCurrency(stats.totalFlatPendingMaintenance)}</p>
                 </div>
               </div>
@@ -1001,13 +1015,13 @@ const Dashboard = () => {
               >
                 <form onSubmit={submitReceipt} className="space-y-5">
                   <InputField
-                    label="Flat"
+                    label={flatSelectFieldLabel(apartment)}
                     name="flat_id"
                     type="select"
                     value={receiptForm.flat_id}
                     onChange={handleReceiptChange}
                     options={[
-                      { value: '', label: 'Select Flat (Optional)' },
+                      { value: '', label: selectFlatLabel(apartment, true) },
                       ...modalFlats.map((f) => ({
                         value: f.id,
                         label: `${f.flat_number} - ${f.resident_name || f.owner_name || 'No owner'}`,
@@ -1061,8 +1075,11 @@ const Dashboard = () => {
                     onChange={handleReceiptChange}
                     options={[
                       { value: '', label: 'Select Category' },
-                      ...incomeCategories.map((c) => ({ value: c.name, label: c.name })),
-                      { value: 'Maintenance', label: 'Maintenance' },
+                      ...incomeCategories.map((c) => ({
+                        value: c.name,
+                        label: formatCategoryLabel(apartment, c.name),
+                      })),
+                      maintenanceCategoryOption(apartment),
                       { value: 'Penalty', label: 'Penalty' },
                       { value: 'Other Income', label: 'Other Income' },
                       { value: 'Other', label: 'Other' },
@@ -1070,9 +1087,9 @@ const Dashboard = () => {
                     required
                   />
 
-                  {receiptForm.category === 'Maintenance' && receiptForm.flat_id && (
+                  {receiptForm.category === MAINTENANCE_CATEGORY_VALUE && receiptForm.flat_id && (
                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 px-4 py-3 space-y-2">
-                      <p className="text-sm font-medium text-gray-800">Apply maintenance payment to</p>
+                      <p className="text-sm font-medium text-gray-800">{applyMaintenancePaymentToLabel(apartment)}</p>
                       <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
                         <input
                           type="radio"
@@ -1082,7 +1099,7 @@ const Dashboard = () => {
                           onChange={handleReceiptChange}
                           className="mt-1"
                         />
-                        <span>Current month — links to the month below and updates the maintenance record</span>
+                        <span>Current month — links to the month below and updates the {maintenanceLabel.toLowerCase()} record</span>
                       </label>
                       <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
                         <input
@@ -1093,7 +1110,7 @@ const Dashboard = () => {
                           onChange={handleReceiptChange}
                           className="mt-1"
                         />
-                        <span>Old balance / arrears — reduces the flat’s pending (arrears) amount</span>
+                        <span>Old balance / arrears — reduces the unit’s pending (arrears) amount</span>
                       </label>
                       <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
                         <input
@@ -1104,7 +1121,7 @@ const Dashboard = () => {
                           onChange={handleReceiptChange}
                           className="mt-1"
                         />
-                        <span>Others — record income only, no maintenance update</span>
+                        <span>Others — record income only, no {maintenanceLabel.toLowerCase()} update</span>
                       </label>
                     </div>
                   )}
@@ -1116,8 +1133,8 @@ const Dashboard = () => {
                       type="select"
                       value={receiptForm.maintenanceYear}
                       onChange={handleReceiptChange}
-                      required={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'current'}
-                      disabled={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget !== 'current'}
+                      required={receiptForm.category === MAINTENANCE_CATEGORY_VALUE && receiptForm.maintenancePaymentTarget === 'current'}
+                      disabled={receiptForm.category === MAINTENANCE_CATEGORY_VALUE && receiptForm.maintenancePaymentTarget !== 'current'}
                       options={getMaintenanceYearOptions()}
                     />
                     <InputField
@@ -1126,8 +1143,8 @@ const Dashboard = () => {
                       type="select"
                       value={receiptForm.maintenanceMonth}
                       onChange={handleReceiptChange}
-                      required={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget === 'current'}
-                      disabled={receiptForm.category === 'Maintenance' && receiptForm.maintenancePaymentTarget !== 'current'}
+                      required={receiptForm.category === MAINTENANCE_CATEGORY_VALUE && receiptForm.maintenancePaymentTarget === 'current'}
+                      disabled={receiptForm.category === MAINTENANCE_CATEGORY_VALUE && receiptForm.maintenancePaymentTarget !== 'current'}
                       options={CALENDAR_MONTH_OPTIONS}
                     />
                   </div>

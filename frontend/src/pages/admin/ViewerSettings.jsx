@@ -8,6 +8,11 @@ import Button from '../../components/Button';
 import InputField from '../../components/InputField';
 import toast from 'react-hot-toast';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
+import {
+  getMaintenanceMenuLabel,
+  maintenanceViewerHelpLabel,
+  showMaintenanceViewerLabel,
+} from '../../utils/apartmentLabels';
 
 const ViewerSettings = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -273,7 +278,7 @@ const ViewerSettings = () => {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Viewer access</h3>
-                  <p className="text-sm text-gray-500">Only maintenance visibility can be toggled for shared viewer login</p>
+                  <p className="text-sm text-gray-500">Only {getMaintenanceMenuLabel(apartment).toLowerCase()} visibility can be toggled for shared viewer login</p>
                 </div>
               </div>
 
@@ -286,8 +291,8 @@ const ViewerSettings = () => {
               <div className="space-y-4">
                 <div className="flex items-center justify-between py-3 border-b border-gray-100">
                   <div>
-                    <p className="font-medium text-gray-900">Show maintenance</p>
-                    <p className="text-sm text-gray-500">Allow viewing maintenance status for this apartment</p>
+                    <p className="font-medium text-gray-900">{showMaintenanceViewerLabel(apartment)}</p>
+                    <p className="text-sm text-gray-500">{maintenanceViewerHelpLabel(apartment)}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input

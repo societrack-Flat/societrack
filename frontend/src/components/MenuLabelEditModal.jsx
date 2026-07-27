@@ -18,14 +18,14 @@ const FIELD_CONFIG = {
     title: 'Rename Flats section',
     defaultLabel: DEFAULT_FLATS_LABEL,
     placeholder: 'e.g. Hostel, Rooms',
-    helperText: 'Shown on the sidebar button and page title only. Unit numbers stay as 1, 2, 3…',
+    helperText: 'Shown across the app (sidebar, dashboard, income, reports, maintenance, etc.). Unit numbers stay as 1, 2, 3…',
   },
   maintenance: {
     column: 'maintenance_menu_label',
     title: 'Rename Maintenance section',
     defaultLabel: DEFAULT_MAINTENANCE_LABEL,
     placeholder: 'e.g. Dues, Fees',
-    helperText: 'Shown on the sidebar button and page title for admin and residents.',
+    helperText: 'Shown across the app (sidebar, dashboard, reports, income, etc.) for admin and residents.',
   },
 };
 

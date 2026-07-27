@@ -8,7 +8,15 @@ import Card from '../../components/Card';
 import EmptyState from '../../components/EmptyState';
 import toast from 'react-hot-toast';
 import { buildMaintenanceRowView } from '../../utils/maintenanceDue';
-import { getMaintenanceMenuLabel } from '../../utils/apartmentLabels';
+import {
+  flatNumberColumnLabel,
+  flatsPaidLabel,
+  flatsPendingLabel,
+  flatsTabReference,
+  getMaintenanceMenuLabel,
+  searchByFlatOrOwnerPlaceholder,
+  totalFlatsLabel,
+} from '../../utils/apartmentLabels';
 
 const ResMaintenance = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -26,6 +34,7 @@ const ResMaintenance = () => {
 
   const { apartment, residentApartmentId, isResident, profileLoaded, residentFlatId } = useAuth();
   const maintenanceMenuLabel = getMaintenanceMenuLabel(apartment);
+  const flatsMenuLabel = flatsTabReference(apartment);
   const apartmentId = apartment?.id || residentApartmentId;
   // Per-flat residents only see their own flat
   const isPerFlatResident = !!residentFlatId;
@@ -167,7 +176,7 @@ const ResMaintenance = () => {
       });
     } catch (error) {
       console.error('Error fetching maintenance:', error);
-      toast.error('Failed to load maintenance data');
+      toast.error(`Failed to load ${maintenanceMenuLabel.toLowerCase()} data`);
     } finally {
       setLoading(false);
     }
@@ -201,7 +210,7 @@ const ResMaintenance = () => {
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-gray-900">{maintenanceMenuLabel}</h1>
-            <p className="text-gray-500 mt-1">View maintenance payment status for all flats</p>
+            <p className="text-gray-500 mt-1">View {maintenanceMenuLabel.toLowerCase()} payment status for all {flatsMenuLabel.toLowerCase()}</p>
           </div>
 
           {/* Filters */}
@@ -230,7 +239,7 @@ const ResMaintenance = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
               <input
                 type="text"
-                placeholder="Search by flat or owner..."
+                placeholder={searchByFlatOrOwnerPlaceholder(apartment)}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full bg-white border border-gray-200 rounded-lg pl-10 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -242,7 +251,7 @@ const ResMaintenance = () => {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <Card
               icon={Clock}
-              label="Total Flats"
+              label={totalFlatsLabel(apartment)}
               value={stats.totalFlats}
               color="blue"
             />
@@ -273,9 +282,9 @@ const ResMaintenance = () => {
                 <CheckCircle className="text-green-600" size={32} />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-green-900">All Maintenance Collected!</h3>
+                <h3 className="text-lg font-semibold text-green-900">All {maintenanceMenuLabel} Collected!</h3>
                 <p className="text-green-700">
-                  All flats have paid their maintenance for {getMonthName(selectedMonth)} {selectedYear}.
+                  All {flatsMenuLabel.toLowerCase()} have paid their {maintenanceMenuLabel.toLowerCase()} for {getMonthName(selectedMonth)} {selectedYear}.
                 </p>
               </div>
             </div>
@@ -289,7 +298,7 @@ const ResMaintenance = () => {
             <EmptyState
               icon={Clock}
               title="No data found"
-              message="No maintenance records for this period"
+              message={`No ${maintenanceMenuLabel.toLowerCase()} records for this period`}
             />
           ) : (
             <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -297,7 +306,7 @@ const ResMaintenance = () => {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Flat</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">{flatNumberColumnLabel()}</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Owner</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Status</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Amount</th>

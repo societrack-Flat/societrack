@@ -360,16 +360,8 @@ const Login = () => {
     if (error) toast.error(error.message);
   };
 
-  const handleAppleLogin = async () => {
-    if (isNativeApp()) {
-      await handleNativeOAuthLogin('apple');
-      return;
-    }
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'apple',
-      options: { redirectTo: `${window.location.origin}/login` },
-    });
-    if (error) toast.error(error.message);
+  const handleAppleLogin = () => {
+    toast('Apple login coming soon');
   };
 
   return (

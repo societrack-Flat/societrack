@@ -13,6 +13,14 @@ import * as XLSX from 'xlsx';
 import societrackLogo from '../../assets/societrack-logo.png';
 import { drawBrandWordmark } from '../../lib/pdfBrand';
 import { downloadXlsx, downloadPdf } from '../../lib/downloadFile';
+import {
+  getMaintenanceMenuLabel,
+  maintenanceAmountLabel,
+  flatNumberColumnLabel,
+  formatCategoryLabel,
+  unitWithNumber,
+  thisUnitLabel,
+} from '../../utils/apartmentLabels';
 
 const toDataUrl = async (url) => {
   const res = await fetch(url);
@@ -44,6 +52,7 @@ const ResReports = () => {
   const [myMaintenance, setMyMaintenance] = useState(null);
 
   const { apartment, residentApartmentId, isResident, profileLoaded, residentFlatId, residentFlatNumber } = useAuth();
+  const maintenanceLabel = getMaintenanceMenuLabel(apartment);
   const apartmentId = apartment?.id || residentApartmentId;
 
   useEffect(() => {
@@ -227,7 +236,7 @@ const ResReports = () => {
     doc.setFontSize(10);
     doc.setTextColor(100);
     doc.text(apartment?.name || '', 14, 28);
-    doc.text(`Resident Report — ${getPeriodLabel()}${residentFlatNumber ? ` | Flat ${residentFlatNumber}` : ''}`, 14, 34);
+    doc.text(`Resident Report — ${getPeriodLabel()}${residentFlatNumber ? ` | ${residentFlatNumber}` : ''}`, 14, 34);
 
     doc.setDrawColor(200);
     doc.setFillColor(249, 250, 251);
@@ -236,7 +245,7 @@ const ResReports = () => {
     doc.setTextColor(60);
     doc.text('Total Society Expenses:', 20, 54);
     doc.text('Total Society Income:', 20, 62);
-    doc.text('Maintenance:', 20, 70);
+    doc.text(`${maintenanceLabel}:`, 20, 70);
     doc.setTextColor(0);
     doc.text(formatCurrency(stats.totalExpenses), 80, 54);
     doc.text(formatCurrency(stats.totalIncome), 80, 62);
@@ -278,7 +287,7 @@ const ResReports = () => {
       yPos += 6;
       doc.autoTable({
         startY: yPos,
-        head: [['Date', 'Flat', 'Category', 'Amount']],
+        head: [['Date', flatNumberColumnLabel(), 'Category', 'Amount']],
         body: incomeData.map((item) => [
           formatDate(item.date),
           flatNumberForIncome(item.flat_id),
@@ -409,13 +418,13 @@ const ResReports = () => {
                   <>
                     <Card
                       icon={stats.myMaintenanceStatus === 'paid' ? CheckCircle : Clock}
-                      label={`Maintenance — ${residentFlatNumber ? `Flat ${residentFlatNumber}` : 'This Flat'}`}
+                      label={`${maintenanceLabel} — ${residentFlatNumber ? unitWithNumber(apartment, residentFlatNumber) : thisUnitLabel(apartment)}`}
                       value={stats.myMaintenanceStatus === 'paid' ? 'Paid ✓' : 'Pending'}
                       color={stats.myMaintenanceStatus === 'paid' ? 'green' : 'yellow'}
                     />
                     <Card
                       icon={BarChart3}
-                      label="Maintenance amount"
+                      label={maintenanceAmountLabel(apartment)}
                       value={formatCurrency(stats.myMaintenanceAmount)}
                       color="blue"
                     />
@@ -428,11 +437,11 @@ const ResReports = () => {
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                     <Clock size={20} className="text-yellow-500" />
-                    Maintenance — {getPeriodLabel()}
+                    {maintenanceLabel} — {getPeriodLabel()}
                   </h3>
                   <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
                     <div>
-                      <p className="font-medium text-gray-900">{myMaintenance.flats?.flat_number || `Flat ${residentFlatNumber}`}</p>
+                      <p className="font-medium text-gray-900">{myMaintenance.flats?.flat_number || unitWithNumber(apartment, residentFlatNumber)}</p>
                       <p className="text-sm text-gray-500">{myMaintenance.flats?.owner_name || ''}</p>
                     </div>
                     <div className="text-right">
@@ -463,7 +472,7 @@ const ResReports = () => {
                       <thead>
                         <tr className="border-b border-gray-200 text-left text-gray-600">
                           <th className="py-2 pr-4 font-medium">Date</th>
-                          <th className="py-2 pr-4 font-medium">Flat</th>
+                          <th className="py-2 pr-4 font-medium">{flatNumberColumnLabel()}</th>
                           <th className="py-2 pr-4 font-medium">Category</th>
                           <th className="py-2 pr-4 font-medium">Description</th>
                           <th className="py-2 font-medium text-right">Amount</th>

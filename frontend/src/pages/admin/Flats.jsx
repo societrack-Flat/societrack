@@ -11,7 +11,23 @@ import EmptyState from '../../components/EmptyState';
 import toast from 'react-hot-toast';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
-import { getFlatsMenuLabel } from '../../utils/apartmentLabels';
+import {
+  addFlatLabel,
+  addNewFlatLabel,
+  deleteFlatMessage,
+  deleteFlatTitle,
+  editFlatLabel,
+  flatNumberColumnLabel,
+  flatNumberFieldLabel,
+  getFlatsMenuLabel,
+  getMaintenanceMenuLabel,
+  manageFlatsSubtitle,
+  noFlatsAddedTitle,
+  noFlatsFoundTitle,
+  noFlatsMatchMessage,
+  searchByFlatNumberPlaceholder,
+  totalCountFlatsLabel,
+} from '../../utils/apartmentLabels';
 
 const Flats = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -38,6 +54,7 @@ const Flats = () => {
 
   const { apartment, userProfile, profileLoaded } = useAuth();
   const flatsMenuLabel = getFlatsMenuLabel(apartment);
+  const maintenanceLabel = getMaintenanceMenuLabel(apartment);
   const activeApartmentId = useAdminActiveApartment();
 
   useEffect(() => {
@@ -66,7 +83,7 @@ const Flats = () => {
       setFlats(data || []);
     } catch (error) {
       console.error('Error fetching flats:', error);
-      toast.error('Failed to load flats');
+      toast.error(`Failed to load ${flatsMenuLabel.toLowerCase()}`);
     } finally {
       setLoading(false);
     }
@@ -94,7 +111,7 @@ const Flats = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.flat_number.trim()) {
-      toast.error('Flat number is required');
+      toast.error(`${flatNumberFieldLabel(apartment)} is required`);
       return;
     }
     try {
@@ -121,11 +138,11 @@ const Flats = () => {
       if (editingFlat) {
         const { error } = await supabase.from('flats').update(flatData).eq('id', editingFlat.id);
         if (error) throw error;
-        toast.success('Flat updated successfully');
+        toast.success(`${flatsMenuLabel} updated successfully`);
       } else {
         const { error } = await supabase.from('flats').insert(flatData);
         if (error) throw error;
-        toast.success('Flat created successfully');
+        toast.success(`${flatsMenuLabel} created successfully`);
       }
 
       setShowModal(false);
@@ -145,13 +162,13 @@ const Flats = () => {
     } catch (error) {
       console.error('Error saving flat:', error);
       if (error.code === '23505') {
-        toast.error('This flat number already exists');
+        toast.error('This number already exists');
       } else {
         const msg = error?.message || '';
         if (String(msg).toLowerCase().includes('column') || String(msg).toLowerCase().includes('schema')) {
           toast.error('Supabase table `flats` is missing fields needed for this UI (monthly_maintenance/notes).');
         } else {
-          toast.error('Failed to save flat');
+          toast.error(`Failed to save ${flatsMenuLabel.toLowerCase()}`);
         }
       }
     } finally {
@@ -181,12 +198,12 @@ const Flats = () => {
       setDeleting(true);
       const { error } = await supabase.from('flats').delete().eq('id', deleteTarget.id);
       if (error) throw error;
-      toast.success('Flat deleted successfully');
+      toast.success(`${flatsMenuLabel} deleted successfully`);
       setDeleteTarget(null);
       fetchFlats();
     } catch (error) {
       console.error('Error deleting flat:', error);
-      toast.error('Failed to delete flat');
+      toast.error(`Failed to delete ${flatsMenuLabel.toLowerCase()}`);
     } finally {
       setDeleting(false);
     }
@@ -219,21 +236,21 @@ const Flats = () => {
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-gray-900">{flatsMenuLabel}</h1>
             <p className="text-gray-500 mt-1">
-              Manage flats for the selected apartment
-              <span className="text-gray-700 font-semibold"> · {flats.length} total flats</span>
+              {manageFlatsSubtitle(apartment)}
+              <span className="text-gray-700 font-semibold"> · {totalCountFlatsLabel(apartment, flats.length)}</span>
             </p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-4 mb-6">
             <Button variant="primary" icon={Plus} onClick={() => setShowModal(true)}>
-              Add Flat
+              {addFlatLabel(apartment)}
             </Button>
             <div className="flex-1 flex gap-4">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                 <input
                   type="text"
-                  placeholder="Search by flat number or owner..."
+                  placeholder={searchByFlatNumberPlaceholder(apartment)}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full bg-white border border-gray-200 rounded-lg pl-10 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -252,21 +269,21 @@ const Flats = () => {
           ) : filteredFlats.length === 0 && !searchTerm ? (
             <EmptyState
               icon={DoorOpen}
-              title="No flats added yet"
-              message="Click Add Flat to begin. Each flat gets its own resident login credentials."
-              actionLabel="Add Flat"
+              title={noFlatsAddedTitle(apartment)}
+              message={`Click ${addFlatLabel(apartment)} to begin. Each unit gets its own resident login credentials.`}
+              actionLabel={addFlatLabel(apartment)}
               onAction={() => setShowModal(true)}
               actionIcon={Plus}
             />
           ) : filteredFlats.length === 0 ? (
-            <EmptyState icon={Search} title="No results found" message={`No flats match "${searchTerm}"`} />
+            <EmptyState icon={Search} title="No results found" message={noFlatsMatchMessage(apartment, searchTerm)} />
           ) : (
             <div className="bg-white rounded-xl border border-gray-200/90 shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[880px] text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     <tr>
-                      <th className="py-3 px-3">Flat</th>
+                      <th className="py-3 px-3">{flatNumberColumnLabel()}</th>
                       <th className="py-3 px-3">Resident</th>
                       <th className="py-3 px-3">Phone</th>
                       <th className="py-3 px-3">Email</th>
@@ -311,7 +328,7 @@ const Flats = () => {
                             type="button"
                             onClick={() => handleEdit(flat)}
                             className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg inline-flex"
-                            aria-label="Edit flat"
+                            aria-label={editFlatLabel(apartment)}
                           >
                             <Edit2 size={16} />
                           </button>
@@ -319,7 +336,7 @@ const Flats = () => {
                             type="button"
                             onClick={() => setDeleteTarget(flat)}
                             className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg inline-flex"
-                            aria-label="Delete flat"
+                            aria-label={deleteFlatTitle(apartment)}
                           >
                             <Trash2 size={16} />
                           </button>
@@ -334,7 +351,7 @@ const Flats = () => {
         </main>
       </div>
 
-      <Modal isOpen={showModal} onClose={handleCloseModal} title={editingFlat ? 'Edit Flat' : 'Add New Flat'} subtitle={editingFlat ? 'Update flat details' : 'Resident login credentials will be auto-generated'}>
+      <Modal isOpen={showModal} onClose={handleCloseModal} title={editingFlat ? editFlatLabel(apartment) : addNewFlatLabel(apartment)} subtitle={editingFlat ? `Update ${flatsMenuLabel.toLowerCase()} details` : 'Resident login credentials will be auto-generated'}>
         <form onSubmit={handleSubmit} className="space-y-5">
           {apartment?.name && (
             <p className="text-sm text-gray-600 -mt-1 mb-1">
@@ -342,12 +359,12 @@ const Flats = () => {
               <span className="text-gray-400 font-normal"> (change via the header)</span>
             </p>
           )}
-          <InputField label="Flat Number" type="text" name="flat_number" placeholder="e.g., A-101, B-205" value={formData.flat_number} onChange={handleChange} icon={DoorOpen} required />
+          <InputField label={flatNumberFieldLabel(apartment)} type="text" name="flat_number" placeholder="e.g., 1, 2, 101" value={formData.flat_number} onChange={handleChange} icon={DoorOpen} required />
           <InputField label="Resident Name" type="text" name="resident_name" placeholder="Enter resident's name" value={formData.resident_name} onChange={handleChange} icon={User} />
           <InputField label="Resident Phone" type="tel" name="resident_phone" placeholder="+91 9876543210" value={formData.resident_phone} onChange={handleChange} icon={Phone} />
           <InputField label="Resident Email" type="email" name="resident_email" placeholder="resident@example.com" value={formData.resident_email} onChange={handleChange} icon={Mail} />
           <div className="grid grid-cols-2 gap-4">
-            <InputField label="Monthly Maintenance (Rs)" type="number" name="monthly_maintenance" placeholder="0" value={formData.monthly_maintenance} onChange={handleChange} icon={IndianRupee} min="0" step="1" />
+            <InputField label={`Monthly ${maintenanceLabel} (Rs)`} type="number" name="monthly_maintenance" placeholder="0" value={formData.monthly_maintenance} onChange={handleChange} icon={IndianRupee} min="0" step="1" />
             <InputField
               label="Old balance / arrears (Rs)"
               type="number"
@@ -358,7 +375,7 @@ const Flats = () => {
               icon={AlertCircle}
               min="0"
               step="1"
-              helperText="Added with monthly maintenance for total due (e.g. dashboard & maintenance screen)."
+              helperText={`Added with monthly ${maintenanceLabel.toLowerCase()} for total due (e.g. dashboard & ${maintenanceLabel.toLowerCase()} screen).`}
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -374,7 +391,7 @@ const Flats = () => {
               ]}
             />
             <InputField
-              label="Other maintenance (Rs)"
+              label={`Other ${maintenanceLabel.toLowerCase()} (Rs)`}
               type="number"
               name="other_maintenance"
               placeholder="0"
@@ -390,7 +407,7 @@ const Flats = () => {
           <div className="flex gap-3 pt-4">
             <Button type="button" variant="outline" onClick={handleCloseModal} fullWidth>Cancel</Button>
             <Button type="submit" variant="primary" loading={loading} fullWidth>
-              {editingFlat ? 'Update' : 'Create'} Flat
+              {editingFlat ? 'Update' : 'Create'} {flatsMenuLabel.replace(/s$/i, '')}
             </Button>
           </div>
         </form>
@@ -398,8 +415,8 @@ const Flats = () => {
 
       <ConfirmDialog
         isOpen={!!deleteTarget}
-        title="Delete flat?"
-        message={`Are you sure you want to delete Flat ${deleteTarget?.flat_number || ''}?`}
+        title={deleteFlatTitle(apartment)}
+        message={deleteFlatMessage(apartment, deleteTarget?.flat_number)}
         confirmText="Delete"
         confirmVariant="secondary"
         loading={deleting}

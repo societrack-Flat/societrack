@@ -7,6 +7,7 @@ import Sidebar from '../../components/Sidebar';
 import TopBar from '../../components/TopBar';
 import EmptyState from '../../components/EmptyState';
 import toast from 'react-hot-toast';
+import { flatNumberColumnLabel } from '../../utils/apartmentLabels';
 
 const ResIncome = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -174,7 +175,7 @@ const ResIncome = () => {
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Date</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Flat</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">{flatNumberColumnLabel()}</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Category</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Description</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Amount</th>

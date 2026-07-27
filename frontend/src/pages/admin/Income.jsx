@@ -13,6 +13,21 @@ import ConfirmDialog from '../../components/ConfirmDialog';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
 import { CALENDAR_MONTH_OPTIONS, getMaintenanceYearOptions } from '../../utils/maintenanceMonthOptions';
 import { applyMaintenanceIncomeAfterInsert } from '../../lib/applyMaintenanceIncome';
+import {
+  MAINTENANCE_CATEGORY_VALUE,
+  applyMaintenancePaymentToLabel,
+  bulkMaintenanceCollectionLabel,
+  formatCategoryLabel,
+  getMaintenanceMenuLabel,
+  maintenanceCategoryOption,
+  maintenanceMonthColumnLabel,
+  maintenanceTabReference,
+  flatsTabReference,
+  selectFlatForMaintenanceToast,
+  flatSelectFieldLabel,
+  selectFlatLabel,
+  flatNumberColumnLabel,
+} from '../../utils/apartmentLabels';
 
 const formatMaintMonthLabel = (val) => {
   if (!val || !/^\d{4}-\d{2}$/.test(String(val))) return '—';
@@ -71,6 +86,8 @@ const Income = () => {
   const [bulkFetching, setBulkFetching] = useState(false);
 
   const { apartment, userProfile, profileLoaded } = useAuth();
+  const maintenanceLabel = getMaintenanceMenuLabel(apartment);
+  const flatsLabel = flatsTabReference(apartment);
   const activeApartmentId = useAdminActiveApartment();
 
   useEffect(() => {
@@ -196,15 +213,15 @@ const Income = () => {
       return;
     }
 
-    const isMaint = formData.category === 'Maintenance';
+    const isMaint = formData.category === MAINTENANCE_CATEGORY_VALUE;
     const payTarget = formData.maintenancePaymentTarget;
     const isMaintSync = isMaint && formData.flat_id && (payTarget === 'current' || payTarget === 'arrears');
     if (isMaint && !formData.flat_id) {
-      toast.error('Select a flat for maintenance payments');
+      toast.error(selectFlatForMaintenanceToast(apartment, maintenanceLabel));
       return;
     }
     if (isMaint && payTarget === 'current' && (!formData.maintenanceYear || !formData.maintenanceMonth)) {
-      toast.error('Select year and month for current maintenance');
+      toast.error(`Select year and month for current ${maintenanceLabel.toLowerCase()}`);
       return;
     }
 
@@ -248,7 +265,7 @@ const Income = () => {
 
         const { error } = await supabase.from('income').update(incomeData).eq('id', editingIncome.id);
         if (error) throw error;
-        toast.success('Income updated. If payment allocation changed, verify Maintenance and Flats.');
+        toast.success(`Income updated. If payment allocation changed, verify ${maintenanceTabReference(apartment)} and ${flatsTabReference(apartment)}.`);
       } else {
         const { error } = await supabase.from('income').insert(incomeData);
         if (error) throw error;
@@ -270,7 +287,7 @@ const Income = () => {
             console.error(syncErr);
             toast.error(
               syncErr?.message ||
-                'Income saved, but maintenance could not be updated. You can correct it from the Maintenance tab.'
+                `Income saved, but ${maintenanceLabel.toLowerCase()} could not be updated. You can correct it from the ${maintenanceTabReference(apartment)} tab.`
             );
           }
         }
@@ -321,7 +338,7 @@ const Income = () => {
       setBulkSelected(new Set());
     } catch (err) {
       console.error(err);
-      toast.error('Could not load flats for bulk collection');
+      toast.error(`Could not load ${flatsLabel.toLowerCase()} for bulk collection`);
     } finally {
       setBulkFetching(false);
     }
@@ -356,7 +373,7 @@ const Income = () => {
   const handleBulkSubmit = async (e) => {
     e.preventDefault();
     if (bulkSelected.size === 0) {
-      toast.error('Select at least one pending flat');
+      toast.error(`Select at least one pending ${flatsLabel.toLowerCase().replace(/s$/, '')}`);
       return;
     }
     const monthNum = Number(bulkData.month);
@@ -366,7 +383,7 @@ const Income = () => {
 
     const selectedRows = bulkRows.filter((r) => bulkSelected.has(r.flat_id) && r.status === 'pending');
     if (selectedRows.some((r) => !r.amount || Number(r.amount) <= 0)) {
-      toast.error('Selected flats must have a maintenance amount (set on flat or maintenance record)');
+      toast.error(`Selected ${flatsLabel.toLowerCase()} must have a ${maintenanceLabel.toLowerCase()} amount (set on unit or ${maintenanceLabel.toLowerCase()} record)`);
       return;
     }
 
@@ -400,8 +417,8 @@ const Income = () => {
           apartment_id: activeApartmentId,
           flat_id: row.flat_id,
           amount: amt,
-          category: 'Maintenance',
-          description: `Maintenance for ${getMonthName(monthNum)} ${yearNum}`,
+          category: MAINTENANCE_CATEGORY_VALUE,
+          description: `${maintenanceLabel} for ${getMonthName(monthNum)} ${yearNum}`,
           date: paymentDate,
           payment_mode: mode,
           maintenance_month: mm,
@@ -410,7 +427,7 @@ const Income = () => {
         if (ie) throw ie;
       }
 
-      toast.success(`Marked ${selectedRows.length} flat(s) as paid`);
+      toast.success(`Marked ${selectedRows.length} unit(s) as paid`);
       setShowBulkModal(false);
       setBulkData({
         month: new Date().getMonth() + 1,
@@ -562,7 +579,7 @@ const Income = () => {
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-gray-900">Income / Receipts</h1>
-            <p className="text-gray-500 mt-1">Record maintenance payments from residents</p>
+            <p className="text-gray-500 mt-1">Record {maintenanceLabel.toLowerCase()} payments from residents</p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -571,7 +588,7 @@ const Income = () => {
               icon={Users}
               onClick={() => setShowBulkModal(true)}
             >
-              Bulk Maintenance Collection
+              {bulkMaintenanceCollectionLabel(apartment)}
             </Button>
             <Button
               variant="primary"
@@ -648,9 +665,9 @@ const Income = () => {
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Date</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Flat</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">{flatNumberColumnLabel()}</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Category</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Maintenance Month</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">{maintenanceMonthColumnLabel(apartment)}</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Description</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Amount</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Payment</th>
@@ -669,7 +686,7 @@ const Income = () => {
                         </td>
                         <td className="py-3 px-4">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            {item.category}
+                            {formatCategoryLabel(apartment, item.category)}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-700 whitespace-nowrap">
@@ -736,13 +753,13 @@ const Income = () => {
       >
         <form onSubmit={handleSubmit} className="space-y-5">
           <InputField
-            label="Flat"
+            label={flatSelectFieldLabel(apartment)}
             type="select"
             name="flat_id"
             value={formData.flat_id}
             onChange={handleChange}
             options={[
-              { value: '', label: 'Select Flat (Optional)' },
+              { value: '', label: selectFlatLabel(apartment, true) },
               ...flats.map(flat => ({
                 value: flat.id,
                 label: `${flat.flat_number} - ${flat.resident_name || flat.owner_name || 'No owner'}`
@@ -794,13 +811,13 @@ const Income = () => {
             options={[
               { value: '', label: 'Select Category' },
               ...categories.map((cat) => ({ value: cat.name, label: cat.name })),
-              { value: 'Maintenance', label: 'Maintenance' },
+              { value: MAINTENANCE_CATEGORY_VALUE, label: getMaintenanceMenuLabel(apartment) },
             ]}
           />
 
-          {formData.category === 'Maintenance' && formData.flat_id && (
+          {formData.category === MAINTENANCE_CATEGORY_VALUE && formData.flat_id && (
             <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 px-4 py-3 space-y-2">
-              <p className="text-sm font-medium text-gray-800">Apply maintenance payment to</p>
+              <p className="text-sm font-medium text-gray-800">{applyMaintenancePaymentToLabel(apartment)}</p>
               <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
                 <input
                   type="radio"
@@ -811,7 +828,7 @@ const Income = () => {
                   className="mt-1"
                   disabled={!!editingIncome}
                 />
-                <span>Current month — links to the month below and updates the maintenance record</span>
+                <span>Current month — links to the month below and updates the {maintenanceLabel.toLowerCase()} record</span>
               </label>
               <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
                 <input
@@ -823,7 +840,7 @@ const Income = () => {
                   className="mt-1"
                   disabled={!!editingIncome}
                 />
-                <span>Old balance / arrears — reduces the flat’s pending (arrears) amount</span>
+                <span>Old balance / arrears — reduces the unit’s pending (arrears) amount</span>
               </label>
               <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
                 <input
@@ -835,7 +852,7 @@ const Income = () => {
                   className="mt-1"
                   disabled={!!editingIncome}
                 />
-                <span>Others — record income only, no maintenance update</span>
+                <span>Others — record income only, no {maintenanceLabel.toLowerCase()} update</span>
               </label>
             </div>
           )}
@@ -847,8 +864,8 @@ const Income = () => {
               name="maintenanceYear"
               value={formData.maintenanceYear}
               onChange={handleChange}
-              required={formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'current'}
-              disabled={formData.category === 'Maintenance' && formData.maintenancePaymentTarget !== 'current'}
+              required={formData.category === MAINTENANCE_CATEGORY_VALUE && formData.maintenancePaymentTarget === 'current'}
+              disabled={formData.category === MAINTENANCE_CATEGORY_VALUE && formData.maintenancePaymentTarget !== 'current'}
               options={getMaintenanceYearOptions()}
             />
             <InputField
@@ -857,8 +874,8 @@ const Income = () => {
               name="maintenanceMonth"
               value={formData.maintenanceMonth}
               onChange={handleChange}
-              required={formData.category === 'Maintenance' && formData.maintenancePaymentTarget === 'current'}
-              disabled={formData.category === 'Maintenance' && formData.maintenancePaymentTarget !== 'current'}
+              required={formData.category === MAINTENANCE_CATEGORY_VALUE && formData.maintenancePaymentTarget === 'current'}
+              disabled={formData.category === MAINTENANCE_CATEGORY_VALUE && formData.maintenancePaymentTarget !== 'current'}
               options={CALENDAR_MONTH_OPTIONS}
             />
           </div>
@@ -927,11 +944,11 @@ const Income = () => {
       <Modal
         isOpen={showBulkModal}
         onClose={() => setShowBulkModal(false)}
-        title="Bulk Maintenance Collection"
+        title={bulkMaintenanceCollectionLabel(apartment)}
         subtitle={
           apartment?.name
-            ? `${apartment.name} · Pick pending flats and record payment`
-            : 'Pick pending flats and record payment'
+            ? `${apartment.name} · Pick pending ${flatsLabel.toLowerCase()} and record payment`
+            : `Pick pending ${flatsLabel.toLowerCase()} and record payment`
         }
       >
         <form onSubmit={handleBulkSubmit} className="space-y-5 max-h-[75vh] overflow-y-auto pr-1">
@@ -943,7 +960,7 @@ const Income = () => {
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <InputField
-              label="Maintenance Month"
+              label={maintenanceMonthColumnLabel(apartment)}
               type="select"
               name="month"
               value={bulkData.month}
@@ -994,7 +1011,7 @@ const Income = () => {
 
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm text-gray-600">
             <span>
-              {bulkFetching ? 'Loading flats…' : `${pendingCount} pending / ${bulkRows.length} total flats`}
+              {bulkFetching ? `Loading ${flatsLabel.toLowerCase()}…` : `${pendingCount} pending / ${bulkRows.length} total ${flatsLabel.toLowerCase()}`}
             </span>
             <div className="flex flex-wrap gap-2">
               <button
@@ -1016,7 +1033,7 @@ const Income = () => {
                 <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
                   <tr>
                     <th className="w-10 py-2 pl-3" />
-                    <th className="text-left py-2 px-2 font-medium text-gray-700">Flat</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-700">{flatNumberColumnLabel()}</th>
                     <th className="text-left py-2 px-2 font-medium text-gray-700">Resident</th>
                     <th className="text-right py-2 px-2 font-medium text-gray-700">Amount</th>
                     <th className="text-left py-2 pr-3 font-medium text-gray-700">Status</th>

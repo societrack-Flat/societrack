@@ -14,6 +14,7 @@ import societrackLogo from '../../assets/societrack-logo.png';
 import { drawBrandWordmark } from '../../lib/pdfBrand';
 import { useAdminActiveApartment } from '../../hooks/useAdminActiveApartment';
 import { downloadXlsx, downloadPdf } from '../../lib/downloadFile';
+import { totalMaintenanceCollectedLabel, flatNumberColumnLabel, flatsTabReference, formatCategoryLabel } from '../../utils/apartmentLabels';
 
 const toDataUrl = async (url) => {
   const res = await fetch(url);
@@ -196,7 +197,7 @@ const Reports = () => {
 
     const data = incomeData.map(item => ({
       'Date': formatDate(item.date),
-      'Flat': item.flats?.flat_number || '-',
+      [flatNumberColumnLabel()]: item.flats?.flat_number || '-',
       'Owner': item.flats?.owner_name || '-',
       'Category': item.category,
       'Description': item.description || '-',
@@ -301,11 +302,11 @@ const Reports = () => {
 
       doc.autoTable({
         startY: yPos,
-        head: [['Date', 'Flat', 'Category', 'Description', 'Amount']],
+        head: [['Date', flatNumberColumnLabel(), 'Category', 'Description', 'Amount']],
         body: incomeData.map(item => [
           formatDate(item.date),
           item.flats?.flat_number || '-',
-          item.category,
+          formatCategoryLabel(apartment, item.category),
           item.description?.substring(0, 30) || '-',
           formatCurrency(item.amount),
         ]),
@@ -336,7 +337,7 @@ const Reports = () => {
         head: [['Date', 'Category', 'Vendor', 'Description', 'Amount']],
         body: expenseData.map(item => [
           formatDate(item.date),
-          item.category,
+          formatCategoryLabel(apartment, item.category),
           item.vendor_name || '-',
           item.description?.substring(0, 30) || '-',
           formatCurrency(item.amount),
@@ -522,7 +523,7 @@ const Reports = () => {
                 />
                 <Card
                   icon={TrendingUp}
-                  label="Total Maintenance Collected"
+                  label={totalMaintenanceCollectedLabel(apartment)}
                   value={formatCurrency(stats.maintenanceCollected)}
                   color="green"
                   subValue={`Total Income: ${formatCurrency(stats.totalIncome)}`}
@@ -563,7 +564,7 @@ const Reports = () => {
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
-                          <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Flat</th>
+                          <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">{flatNumberColumnLabel()}</th>
                           <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Resident Name</th>
                           <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Month</th>
                           <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Amount</th>

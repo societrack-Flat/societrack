@@ -15,7 +15,17 @@ import { maintenanceApi } from '../../lib/apiClient';
 import { autoClosePriorMonths } from '../../lib/maintenanceAutoRollover';
 import { downloadTextFile, downloadPdf } from '../../lib/downloadFile';
 import { buildMaintenanceRowView } from '../../utils/maintenanceDue';
-import { getMaintenanceMenuLabel } from '../../utils/apartmentLabels';
+import {
+  addFlatLabel,
+  flatNumberColumnLabel,
+  flatsPaidLabel,
+  flatsPendingLabel,
+  flatsTabReference,
+  getMaintenanceMenuLabel,
+  noFlatsFoundTitle,
+  searchByFlatOrOwnerPlaceholder,
+  totalFlatsLabel,
+} from '../../utils/apartmentLabels';
 
 const Maintenance = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -35,6 +45,7 @@ const Maintenance = () => {
 
   const { apartment, userProfile, profileLoaded } = useAuth();
   const maintenanceMenuLabel = getMaintenanceMenuLabel(apartment);
+  const flatsMenuLabel = flatsTabReference(apartment);
   const activeApartmentId = useAdminActiveApartment();
 
   useEffect(() => {
@@ -63,7 +74,7 @@ const Maintenance = () => {
       setFlats(data || []);
     } catch (error) {
       console.error('Error fetching flats:', error);
-      toast.error('Failed to load flats');
+      toast.error(`Failed to load ${flatsMenuLabel.toLowerCase()}`);
     }
   };
 
@@ -175,7 +186,7 @@ const Maintenance = () => {
       });
     } catch (error) {
       console.error('Error fetching maintenance data:', error);
-      toast.error('Failed to load maintenance data');
+      toast.error(`Failed to load ${maintenanceMenuLabel.toLowerCase()} data`);
     } finally {
       setLoading(false);
     }
@@ -234,15 +245,15 @@ const Maintenance = () => {
 
   const handleDownloadOverallFlatPending = async () => {
     if (!flats.length) {
-      toast.error('No flats to export');
+      toast.error(`No ${flatsMenuLabel.toLowerCase()} to export`);
       return;
     }
     const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const header = [
-      'Flat',
+      flatNumberColumnLabel(),
       'Resident/Owner',
       'Phone',
-      'Monthly maintenance',
+      'Monthly ' + maintenanceMenuLabel.toLowerCase(),
       'Pending (arrears)',
       'Other charges',
       'Total (monthly + pending + other)',
@@ -266,7 +277,7 @@ const Maintenance = () => {
           t,
         ].join(',');
       }),
-      ['', '', '', '', '', 'Grand total (all flats)', grand].join(','),
+      ['', '', '', '', '', `Grand total (all ${flatsMenuLabel.toLowerCase()})`, grand].join(','),
     ];
     await downloadTextFile(
       lines.join('\n'),
@@ -280,7 +291,7 @@ const Maintenance = () => {
       (r) => String(r.status || '').toLowerCase() === 'pending',
     );
     if (!pendingOnly.length) {
-      toast.error('No pending maintenance to export. Clear the search or pick a month with pending rows.');
+      toast.error(`No pending ${maintenanceMenuLabel.toLowerCase()} to export. Clear the search or pick a month with pending rows.`);
       return;
     }
 
@@ -298,7 +309,7 @@ const Maintenance = () => {
 
     doc.setFontSize(15);
     doc.setTextColor(0);
-    doc.text('Maintenance status report (pending only)', 14, 16);
+    doc.text(`${maintenanceMenuLabel} status report (pending only)`, 14, 16);
     doc.setFontSize(11);
     doc.text(aptName, 14, 24);
     doc.setFontSize(9);
@@ -340,7 +351,7 @@ const Maintenance = () => {
       startY: 40,
       head: [
         [
-          'Flat',
+          flatNumberColumnLabel(),
           'Owner',
           'Current month (fee)',
           'Old balance',
@@ -427,7 +438,7 @@ const Maintenance = () => {
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-gray-900">{maintenanceMenuLabel}</h1>
             <p className="text-gray-500 mt-1">
-              Track monthly maintenance and payments per flat ·{' '}
+              Track monthly {maintenanceMenuLabel.toLowerCase()} and payments per {flatsMenuLabel.toLowerCase().replace(/s$/, '')} ·{' '}
               <span className="font-medium text-gray-700">
                 {getMonthName(selectedMonth)} {selectedYear}
               </span>
@@ -460,7 +471,7 @@ const Maintenance = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
               <input
                 type="text"
-                placeholder="Search by flat or owner..."
+                placeholder={searchByFlatOrOwnerPlaceholder(apartment)}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full bg-white border border-gray-200 rounded-lg pl-10 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -471,7 +482,7 @@ const Maintenance = () => {
               Download status report (PDF)
             </Button>
             <Button variant="outline" icon={Download} onClick={handleDownloadOverallFlatPending}>
-              Download all flats (totals)
+              Download all {flatsMenuLabel.toLowerCase()} (totals)
             </Button>
 
             <Button
@@ -488,19 +499,19 @@ const Maintenance = () => {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <Card
               icon={DoorOpen}
-              label="Total Flats"
+              label={totalFlatsLabel(apartment)}
               value={stats.totalFlats}
               color="blue"
             />
             <Card
               icon={CheckCircle}
-              label="Flats Paid"
+              label={flatsPaidLabel(apartment)}
               value={stats.paidCount}
               color="green"
             />
             <Card
               icon={AlertCircle}
-              label="Flats Pending"
+              label={flatsPendingLabel(apartment)}
               value={stats.pendingCount}
               color="red"
             />
@@ -519,9 +530,9 @@ const Maintenance = () => {
                 <CheckCircle className="text-green-600" size={32} />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-green-900">All Maintenance Collected!</h3>
+                <h3 className="text-lg font-semibold text-green-900">All {maintenanceMenuLabel} Collected!</h3>
                 <p className="text-green-700">
-                  All {stats.totalFlats} flats have paid their maintenance for {getMonthName(selectedMonth)} {selectedYear}.
+                  All {stats.totalFlats} {flatsMenuLabel.toLowerCase()} have paid their {maintenanceMenuLabel.toLowerCase()} for {getMonthName(selectedMonth)} {selectedYear}.
                 </p>
               </div>
             </div>
@@ -534,9 +545,9 @@ const Maintenance = () => {
           ) : flats.length === 0 ? (
             <EmptyState
               icon={DoorOpen}
-              title="No flats found"
-              message="Add flats to start tracking maintenance"
-              actionLabel="Add Flats"
+              title={noFlatsFoundTitle(apartment)}
+              message={`Add ${flatsMenuLabel.toLowerCase()} to start tracking ${maintenanceMenuLabel.toLowerCase()}`}
+              actionLabel={addFlatLabel(apartment)}
               onAction={() => window.location.href = '/admin/flats'}
             />
           ) : (
@@ -545,7 +556,7 @@ const Maintenance = () => {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Flat</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">{flatNumberColumnLabel()}</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Owner</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Phone</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-gray-900">Status</th>
